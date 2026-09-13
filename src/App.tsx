@@ -1195,7 +1195,19 @@ export default function App() {
           </div>
         </section>}
         {activeTab === 'dashboard' ? (
-          <DashboardView spots={displaySpots} bikes={registeredBikes} logs={logs} config={config} onTabChange={setActiveTab} />
+          <DashboardView
+            spots={displaySpots}
+            bikes={registeredBikes}
+            logs={logs}
+            config={config}
+            onTabChange={setActiveTab}
+            onOpenBike={(bike) => {
+              setBikeToEdit(bike || null);
+              setIsBikeRegisterModalOpen(true);
+            }}
+            onStartReevaluation={(bike) => setBikeToReevaluate(bike)}
+            onAssignSpot={handleAssignSpotToBike}
+          />
         ) : activeTab === 'map' ? (
           <SpotMap
             spots={displaySpots}
@@ -1225,7 +1237,7 @@ export default function App() {
             onBackToTasks={taskReturnContext === 'bikes' ? () => { setTaskReturnContext(null); setActiveTab('tasks'); } : undefined}
           />
         ) : activeTab === 'tasks' ? (
-          <TasksHub bikes={registeredBikes} spots={displaySpots} dueCount={dueReevaluationsCount} condominiumId={activeCondominiumId} onTabChange={setActiveTab} onOpenTask={(focus) => { const target = focus === 'reevaluation' ? 'bikes' : 'requests'; setTaskReturnContext(target); setActiveTab(target); }} />
+          <TasksHub bikes={registeredBikes} spots={displaySpots} dueCount={dueReevaluationsCount} condominiumId={activeCondominiumId} onTabChange={setActiveTab} onOpenTask={(focus) => { const target = focus === 'reevaluation' ? 'bikes' : 'requests'; setTaskReturnContext(target); setActiveTab(target); }} onStartReevaluation={(bike) => setBikeToReevaluate(bike)} onAssignSpot={handleAssignSpotToBike} />
         ) : activeTab === 'requests' ? (
           <SpotRequestsView
             condominiumId={activeCondominiumId}

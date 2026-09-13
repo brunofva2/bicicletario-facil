@@ -775,6 +775,20 @@ html[data-theme='dark'] .tasks-hub .bg-emerald-50\/50 { background-color: #0d2c2
 html[data-theme='dark'] .tasks-hub .bg-rose-50\/50 { background-color: #341d2b !important; }
 html[data-theme='dark'] .tasks-hub img { border: 1px solid rgba(251, 191, 36, .32); background: #142746; }
 
+/* Os resumos de tarefas são controles completos: o destaque e a rolagem tornam
+   explícito que a seleção abre o conteúdo logo abaixo. */
+.task-topic-card {
+  width: 100%;
+  transition: transform 280ms cubic-bezier(.2,.8,.2,1), box-shadow 280ms ease, border-color 220ms ease, background-color 220ms ease;
+}
+.task-topic-card:hover { transform: translateY(-3px); box-shadow: 0 14px 26px rgba(15, 23, 42, .10); }
+.task-topic-card:focus-visible { outline: 3px solid rgba(241, 154, 0, .35); outline-offset: 3px; }
+.task-topic-card--active { animation: task-topic-select 420ms cubic-bezier(.2,.8,.2,1); }
+.task-topic-detail { scroll-margin-top: 1.25rem; animation: task-topic-detail-in 360ms ease both; }
+@keyframes task-topic-select { 0% { transform: scale(.985); } 55% { transform: scale(1.012); } 100% { transform: scale(1); } }
+@keyframes task-topic-detail-in { from { opacity: .55; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .task-topic-card, .task-topic-detail { animation: none; transition: none; } .task-topic-card:hover { transform: none; } }
+
 .quick-task-icon { border: 1px solid currentColor; background: transparent; box-shadow: none; }
 .quick-task-icon--orange { color: #d97706; background: rgba(217, 119, 6, .08); }
 .quick-task-icon--rose { color: #e11d48; background: rgba(225, 29, 72, .08); }

@@ -75,7 +75,8 @@ cross_condominium_links as (
 functions as (
   select count(*) filter (where routine_name = 'assign_bicycle_to_spot') as assign_exists,
          count(*) filter (where routine_name = 'release_spot_allocation') as release_exists,
-         count(*) filter (where routine_name = 'save_condominium_snapshot') as offline_sync_exists
+         count(*) filter (where routine_name = 'save_condominium_snapshot') as offline_sync_exists,
+         count(*) filter (where routine_name = 'sync_snapshot_spots_from_payload') as plant_sync_exists
   from information_schema.routines
   where routine_schema = 'public'
 )
