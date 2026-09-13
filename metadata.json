@@ -1,0 +1,6 @@
+{
+  "name": "Gestão de Vagas Suspensas de Bicicletas",
+  "description": "Sistema local de administração predial, cadastro de bicicletas e controle de vagas suspensas (Modo Local Offline).",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
