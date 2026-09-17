@@ -47,6 +47,7 @@ import {
 } from './lib/operations';
 import { emptyWorkspace, readWorkspace, writeWorkspace, workspaceKey } from './lib/workspaceCache';
 import { isAllocatedToBike, releaseBikeSpots, reconcileBikeSpots } from './utils/bicycleIdentity';
+import { supabase } from './lib/supabase';
 import { ArrowLeft, CheckCircle2, Info, X, FileDown, Plus } from 'lucide-react';
 
 const DEMO_WORKSPACE = { config: DEFAULT_CONFIG, spots: INITIAL_SPOTS, logs: INITIAL_LOGS, registeredBikes: INITIAL_REGISTERED_BIKES };
@@ -69,6 +70,7 @@ function CondominiumApp() {
   const [logs, setLogs] = useState<UsageLog[]>(initialWorkspace.logs);
   const [config, setConfig] = useState<SystemConfig>(initialWorkspace.config);
   const [registeredBikes, setRegisteredBikes] = useState<RegisteredBicycle[]>(initialWorkspace.registeredBikes);
+  const [configuredBlockCount, setConfiguredBlockCount] = useState<number | null>(null);
 
   // UI state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'history' | 'bikes' | 'requests' | 'tasks'>('dashboard');
@@ -118,6 +120,36 @@ function CondominiumApp() {
       },
     };
   }), [spots, registeredBikes]);
+
+  useEffect(() => {
+    let active = true;
+    if (!isCloudMode || !activeCondominiumId || !supabase) {
+      setConfiguredBlockCount(null);
+      return () => { active = false; };
+    }
+    void supabase
+      .from('condominiums')
+      .select('block_count')
+      .eq('id', activeCondominiumId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (active) setConfiguredBlockCount(typeof data?.block_count === 'number' ? data.block_count : null);
+      });
+    return () => { active = false; };
+  }, [activeCondominiumId, isCloudMode]);
+
+  const blockOptions = useMemo(() => {
+    const values = new Set<string>();
+    registeredBikes.forEach((bike) => { if (bike.block.trim()) values.add(bike.block.trim()); });
+    spots.forEach((spot) => {
+      const value = spot.currentAllocation?.block?.trim();
+      if (value) values.add(value);
+    });
+    if (configuredBlockCount && configuredBlockCount > 0) {
+      for (let index = 1; index <= configuredBlockCount; index += 1) values.add(`Bloco ${index}`);
+    }
+    return [...values].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  }, [configuredBlockCount, registeredBikes, spots]);
 
   // Consulta local/de desenvolvimento usa o ID técnico. Em produção, o UUID
   // público é resolvido antes do login pelo AuthGate.
@@ -1320,6 +1352,7 @@ function CondominiumApp() {
       <AllocateModal
         spot={spotToAllocate}
         registeredBikes={registeredBikes}
+        blockOptions={blockOptions}
         initialSelectedBike={initialBikeForAllocation}
         initialResident={approvalRequest ? { residentName: approvalRequest.resident_name, apartment: approvalRequest.apartment, block: approvalRequest.block, residentPhone: approvalRequest.resident_phone, notes: approvalRequest.notes } : null}
         onClose={() => {
@@ -1380,6 +1413,7 @@ function CondominiumApp() {
           initialBike={bikeToEdit}
           availableSpots={availableSpots}
           existingBikes={registeredBikes}
+          blockOptions={blockOptions}
           onClose={() => {
             setIsBikeRegisterModalOpen(false);
             setBikeToEdit(null);

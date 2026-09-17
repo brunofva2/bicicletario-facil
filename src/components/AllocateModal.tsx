@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { BicycleSpot, ConcessionType, ResidentAllocation, RegisteredBicycle, BikeCategory } from '../types';
 import { SAMPLE_BIKE_PHOTOS } from '../mockData';
 import { processImageFileToBase64 } from '../utils/imageUpload';
@@ -23,6 +23,7 @@ import {
 interface AllocateModalProps {
   spot: BicycleSpot | null;
   registeredBikes?: RegisteredBicycle[];
+  blockOptions?: string[];
   initialSelectedBike?: RegisteredBicycle | null;
   initialResident?: { residentName: string; apartment: string; block: string; residentPhone?: string | null; notes?: string | null } | null;
   onClose: () => void;
@@ -40,6 +41,7 @@ export const AllocateModal: React.FC<AllocateModalProps> = (props) => props.spot
 const AllocateForm: React.FC<AllocateModalProps & { spot: BicycleSpot }> = ({
   spot,
   registeredBikes = [],
+  blockOptions = [],
   initialSelectedBike,
   initialResident,
   onClose,
@@ -56,7 +58,9 @@ const AllocateForm: React.FC<AllocateModalProps & { spot: BicycleSpot }> = ({
 
   // Form states
   const [apartment, setApartment] = useState(initialSelectedBike?.apartment || initialResident?.apartment || '');
-  const [block, setBlock] = useState(initialSelectedBike?.block || initialResident?.block || 'Bloco A');
+  // O bloco deve vir da bicicleta/morador ou ser informado pelo operador.
+  // Presumir "Bloco A" cria cadastros válidos visualmente, porém incorretos.
+  const [block, setBlock] = useState(initialSelectedBike?.block || initialResident?.block || '');
   const [residentName, setResidentName] = useState(initialSelectedBike?.residentName || initialResident?.residentName || '');
   const [residentPhone, setResidentPhone] = useState(initialSelectedBike?.residentPhone || initialResident?.residentPhone || '');
   const [residentEmail, setResidentEmail] = useState(initialSelectedBike?.residentEmail || '');
@@ -104,6 +108,12 @@ const AllocateForm: React.FC<AllocateModalProps & { spot: BicycleSpot }> = ({
     setPhotoUrl(bike.photoUrl);
     setCustomPhotoInput('');
   };
+
+  const knownBlocks = useMemo(
+    () => [...new Set([...blockOptions, ...registeredBikes.map((bike) => bike.block)].map((item) => item.trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
+    [blockOptions, registeredBikes]
+  );
 
   const handlePresetDays = (days: number) => {
     setPresetDurationDays(days);
@@ -153,14 +163,14 @@ const AllocateForm: React.FC<AllocateModalProps & { spot: BicycleSpot }> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    if (!apartment.trim() || !residentName.trim()) {
+    if (!apartment.trim() || !block.trim() || !residentName.trim()) {
       return;
     }
 
     const allocationData: Omit<ResidentAllocation, 'id' | 'allocatedAt'> = {
       spotId: spot.id,
       apartment: apartment.trim(),
-      block,
+      block: block.trim(),
       residentName: residentName.trim(),
       residentPhone: residentPhone.trim() || '(11) 90000-0000',
       residentEmail: residentEmail.trim() || undefined,
@@ -369,17 +379,21 @@ const AllocateForm: React.FC<AllocateModalProps & { spot: BicycleSpot }> = ({
                 <label className="block font-medium text-slate-600 mb-1 font-mono">
                   Bloco / Torre
                 </label>
-                <select
+                <input
+                  list="known-allocation-blocks"
+                  type="text"
+                  required
+                  placeholder="Ex.: Bloco B ou Torre 2"
                   value={block}
                   onChange={(e) => setBlock(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 glass-input text-slate-900 font-mono focus:outline-none focus:border-slate-500 shadow-2xs"
-                >
-                  <option value="Bloco A">Bloco A</option>
-                  <option value="Bloco B">Bloco B</option>
-                  <option value="Bloco C">Bloco C</option>
-                  <option value="Torre 1">Torre 1</option>
-                  <option value="Torre 2">Torre 2</option>
-                </select>
+                />
+                <datalist id="known-allocation-blocks">
+                  {knownBlocks.map((knownBlock) => <option key={knownBlock} value={knownBlock} />)}
+                </datalist>
+                <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                  Selecione uma sugestão ou digite o nome real do bloco/torre.
+                </p>
               </div>
 
               <div>

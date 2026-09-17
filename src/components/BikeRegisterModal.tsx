@@ -28,6 +28,7 @@ interface BikeRegisterModalProps {
   initialBike?: RegisteredBicycle | null;
   availableSpots: BicycleSpot[];
   existingBikes: RegisteredBicycle[];
+  blockOptions?: string[];
   preselectedSpotId?: string;
   onClose: () => void;
   onSave: (
@@ -47,6 +48,7 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
   initialBike,
   availableSpots,
   existingBikes,
+  blockOptions = [],
   preselectedSpotId,
   onClose,
   onSave,
@@ -56,7 +58,9 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
   // Form states
   const [residentName, setResidentName] = useState(initialBike?.residentName || '');
   const [apartment, setApartment] = useState(initialBike?.apartment || '');
-  const [block, setBlock] = useState(initialBike?.block || 'Bloco A');
+  // Nunca presumir o bloco: um valor padrão silencioso grava moradores de
+  // outras torres como "Bloco A". Em novos cadastros a unidade é obrigatória.
+  const [block, setBlock] = useState(initialBike?.block || '');
   const [residentPhone, setResidentPhone] = useState(initialBike?.residentPhone || '');
   const [residentEmail, setResidentEmail] = useState(initialBike?.residentEmail || '');
 
@@ -106,8 +110,9 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
     [existingBikes, initialBike?.id, apartment, block]
   );
   const knownBlocks = useMemo(
-    () => [...new Set(existingBikes.map((bike) => bike.block).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [existingBikes]
+    () => [...new Set([...blockOptions, ...existingBikes.map((bike) => bike.block)].map((item) => item.trim()).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true })),
+    [blockOptions, existingBikes]
   );
   const useResidentFromAddress = (bike: RegisteredBicycle) => {
     setResidentName(bike.residentName);
@@ -173,7 +178,7 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!residentName.trim() || !apartment.trim() || !brandModel.trim() || !color.trim()) {
+    if (!residentName.trim() || !apartment.trim() || !block.trim() || !brandModel.trim() || !color.trim()) {
       return;
     }
 
@@ -189,7 +194,7 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
       ...(initialBike?.id ? { id: initialBike.id } : {}),
       residentName: residentName.trim(),
       apartment: apartment.trim(),
-      block,
+      block: block.trim(),
       residentPhone: residentPhone.trim() || '(11) 90000-0000',
       residentEmail: residentEmail.trim() || undefined,
       brandModel: brandModel.trim(),
@@ -298,6 +303,9 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
                   <datalist id="known-condominium-blocks">
                     {knownBlocks.map((knownBlock) => <option key={knownBlock} value={knownBlock} />)}
                   </datalist>
+                  <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                    Selecione uma sugestão ou digite o nome real do bloco/torre.
+                  </p>
                 </div>
               </div>
 

@@ -112,3 +112,18 @@ test('a failed initial cloud read never uploads or queues an empty bootstrap wor
     await window.happyDOM.close();
   }
 });
+
+test('new bicycle and allocation forms never silently assume Bloco A', () => {
+  const registration = fs.readFileSync(new URL('../src/components/BikeRegisterModal.tsx', import.meta.url), 'utf8');
+  const allocation = fs.readFileSync(new URL('../src/components/AllocateModal.tsx', import.meta.url), 'utf8');
+
+  assert.match(registration, /useState\(initialBike\?\.block \|\| ''\)/);
+  assert.match(registration, /block: block\.trim\(\)/);
+  assert.match(registration, /list="known-condominium-blocks"/);
+  assert.doesNotMatch(registration, /useState\(initialBike\?\.block \|\| 'Bloco A'\)/);
+
+  assert.match(allocation, /initialResident\?\.block \|\| ''\)/);
+  assert.match(allocation, /block: block\.trim\(\)/);
+  assert.match(allocation, /list="known-allocation-blocks"/);
+  assert.doesNotMatch(allocation, /initialResident\?\.block \|\| 'Bloco A'\)/);
+});
