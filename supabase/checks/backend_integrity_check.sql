@@ -1,4 +1,4 @@
--- Verificação somente de leitura após as migrações 009 a 019.
+-- Verificação somente de leitura após as migrações 009 a 020.
 -- Não altera nenhum dado. Deve retornar uma única linha com todos os checks.
 
 with
@@ -95,7 +95,8 @@ functions as (
          count(*) filter (where routine_name = 'sync_snapshot_spots_from_payload') as plant_sync_exists,
          count(*) filter (where routine_name = 'sync_snapshot_bicycles_from_payload') as bike_sync_exists,
          count(*) filter (where routine_name = 'get_spot_public_slug') as public_qr_slug_exists,
-         count(*) filter (where routine_name = 'get_public_spot') as public_spot_lookup_exists
+         count(*) filter (where routine_name = 'get_public_spot') as public_spot_lookup_exists,
+         count(*) filter (where routine_name = 'get_public_spot_legacy') as legacy_public_spot_lookup_exists
   from information_schema.routines
   where routine_schema = 'public'
 ),

@@ -13,6 +13,7 @@ import {
   Check,
 } from 'lucide-react';
 import { getSpotPublicSlug } from '../lib/operations';
+import { isCloudConfigured } from '../lib/supabase';
 import { useModalAccessibility } from '../hooks/useModalAccessibility';
 
 interface QrCodeModalProps {
@@ -49,15 +50,19 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
         if (condominiumId) {
           const publicSlug = await getSpotPublicSlug({ condominiumId, spotLegacyId: spot.id });
           query.set('spot', publicSlug);
-        } else {
+        } else if (!isCloudConfigured) {
           // Desenvolvimento local: ainda usa o ID técnico, nunca o número
           // visível, para não confundir vagas iguais em módulos diferentes.
           query.set('vagaId', spot.id);
+        } else {
+          throw new Error('Condomínio não identificado. Reabra o painel antes de gerar a placa.');
         }
-        const url = `${window.location.origin}${window.location.pathname}?${query.toString()}`;
+        const url = new URL(window.location.href);
+        url.search = query.toString();
+        url.hash = '';
         if (!active) return;
-        setPublicConsultUrl(url);
-        const qrUrl = await QRCode.toDataURL(url, {
+        setPublicConsultUrl(url.toString());
+        const qrUrl = await QRCode.toDataURL(url.toString(), {
           width: 400,
           margin: 2,
           color: { dark: '#0f172a', light: '#ffffff' },

@@ -5,6 +5,7 @@ import { LoginScreen } from './LoginScreen';
 import { NobrutecConsole } from '../admin/NobrutecConsole';
 import { ResetPasswordScreen } from './ResetPasswordScreen';
 import { PublicSpotPage } from '../components/PublicSpotPage';
+import { getPublicSpotReference } from '../utils/publicSpotRoute';
 
 export type AppRole = 'nobrutec_admin' | 'syndic' | 'staff' | 'pending';
 
@@ -41,7 +42,9 @@ const AuthContext = createContext<AuthContextValue>({
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const publicSpotSlug = new URLSearchParams(window.location.search).get('spot');
+  // A consulta da placa precisa ser resolvida antes de qualquer decisão de
+  // autenticação. Isso também mantém funcionais QR codes emitidos no piloto.
+  const publicSpotReference = getPublicSpotReference(window.location.search);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(isCloudConfigured);
@@ -126,7 +129,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     [profile, session, supportContext, isVisitor]
   );
 
-  if (publicSpotSlug) return <PublicSpotPage slug={publicSpotSlug} />;
+  if (publicSpotReference) return <PublicSpotPage reference={publicSpotReference} />;
   if (!isCloudConfigured) {
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
   }

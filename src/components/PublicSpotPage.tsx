@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Bike, CheckCircle2, LoaderCircle, Lock, LogIn, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { BicicletarioFacilLogo } from './BicicletarioFacilLogo';
+import type { PublicSpotReference } from '../utils/publicSpotRoute';
 
 interface PublicSpotResult {
   condominium_name: string;
@@ -15,7 +16,7 @@ interface PublicSpotResult {
   bike_tag?: string | null;
 }
 
-export function PublicSpotPage({ slug }: { slug: string }) {
+export function PublicSpotPage({ reference }: { reference: PublicSpotReference }) {
   const [data, setData] = useState<PublicSpotResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,12 +24,16 @@ export function PublicSpotPage({ slug }: { slug: string }) {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      if (!supabase || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(slug)) {
+      const isValidSlug = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(reference.value);
+      const isValidLegacyReference = reference.value.length > 0 && reference.value.length <= 200;
+      if (!supabase || (reference.kind === 'slug' ? !isValidSlug : !isValidLegacyReference)) {
         setError('O código desta vaga é inválido ou não está disponível.');
         setLoading(false);
         return;
       }
-      const { data: rows, error: requestError } = await supabase.rpc('get_public_spot', { p_slug: slug });
+      const { data: rows, error: requestError } = reference.kind === 'slug'
+        ? await supabase.rpc('get_public_spot', { p_slug: reference.value })
+        : await supabase.rpc('get_public_spot_legacy', { p_identifier: reference.value });
       if (!active) return;
       const row = Array.isArray(rows) ? rows[0] : rows;
       if (requestError || !row) setError('Esta vaga não foi encontrada ou não faz mais parte da planta atual.');
@@ -37,7 +42,7 @@ export function PublicSpotPage({ slug }: { slug: string }) {
     };
     void load();
     return () => { active = false; };
-  }, [slug]);
+  }, [reference.kind, reference.value]);
 
   const openLogin = () => window.location.assign(`${window.location.origin}${window.location.pathname}`);
   return <main className="min-h-screen bg-[#f8f4ec] p-4 text-[#0d1733] sm:grid sm:place-items-center">
