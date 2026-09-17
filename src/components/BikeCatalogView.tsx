@@ -257,6 +257,14 @@ export const BikeCatalogView: React.FC<BikeCatalogViewProps> = ({
           return a.bike.residentName.localeCompare(b.bike.residentName);
         }
 
+        if (sortBy === 'block') {
+          const blockCompare = a.bike.block.localeCompare(b.bike.block, 'pt-BR', { numeric: true });
+          if (blockCompare !== 0) return blockCompare;
+          const apartmentCompare = a.bike.apartment.localeCompare(b.bike.apartment, 'pt-BR', { numeric: true });
+          if (apartmentCompare !== 0) return apartmentCompare;
+          return a.bike.residentName.localeCompare(b.bike.residentName, 'pt-BR');
+        }
+
         if (sortBy === 'resident') {
           return a.bike.residentName.localeCompare(b.bike.residentName);
         }
@@ -399,7 +407,8 @@ export const BikeCatalogView: React.FC<BikeCatalogViewProps> = ({
                 <ArrowUpDown className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)} className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2 pl-8 pr-3 text-xs font-semibold normal-case tracking-normal text-slate-700 outline-none focus:ring-2 focus:ring-slate-900">
                   <option value="apartment">Apartamento e morador</option>
-                  <option value="block">Bloco</option>`r`n                  <option value="resident">Nome do morador</option>
+                  <option value="block">Bloco e apartamento</option>
+                  <option value="resident">Nome do morador</option>
                   <option value="brand">Modelo da bicicleta</option>
                   <option value="recent">Mais recentes</option>
                 </select>

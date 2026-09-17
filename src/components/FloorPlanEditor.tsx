@@ -11,7 +11,7 @@ const KIND_META: Record<ElementKind, { label: string; color: string; defaultWidt
   entrance: { label: 'Entrada', color: 'border-orange-500 bg-orange-200 text-[#0d1733]', defaultWidth: 14, defaultHeight: 10, icon: <LogIn className="h-3.5 w-3.5" /> },
 };
 
-type PlanSpotSync = { created: BicycleSpot[]; attached: BicycleSpot[] };
+type PlanSpotSync = { created: BicycleSpot[]; attached: BicycleSpot[]; removedIds: string[] };
 
 function createStableId(prefix: string) {
   const uniquePart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -96,25 +96,44 @@ export function FloorPlanEditor({ config, spots, onSave, onSyncSpots }: { config
       setValidationMessage('Há módulos com a mesma identificação. Duplique o módulo novamente para gerar uma identificação segura.');
       return;
     }
-    const modulesBelowExistingCapacity = elements.filter((element) =>
-      (element.kind || 'bike_module') === 'bike_module'
-      && spots.filter((spot) => spot.floorPlanModuleId === element.id).length > Math.max(1, element.spotCapacity || 1)
+    const currentModules = elements.filter((element) => (element.kind || 'bike_module') === 'bike_module');
+    const currentModuleIds = new Set(currentModules.map((element) => element.id));
+    const previousModuleIds = new Set(
+      (config.sectorFloorPlans?.[sector]?.modules || [])
+        .filter((element) => (element.kind || 'bike_module') === 'bike_module')
+        .map((element) => element.id)
     );
-    if (modulesBelowExistingCapacity.length) {
-      setValidationMessage(`A capacidade de ${modulesBelowExistingCapacity.length} módulo(s) está menor que as vagas já vinculadas. Aumente a capacidade para preservar o mapa.`);
+    const removedIds = new Set(
+      spots
+        .filter((spot) => spot.floorPlanModuleId && previousModuleIds.has(spot.floorPlanModuleId) && !currentModuleIds.has(spot.floorPlanModuleId))
+        .map((spot) => spot.id)
+    );
+    currentModules.forEach((element) => {
+      const capacity = Math.max(1, element.spotCapacity || 1);
+      const linked = spots
+        .filter((spot) => spot.floorPlanModuleId === element.id)
+        .sort((a, b) => (a.wallPosition || 0) - (b.wallPosition || 0));
+      linked.slice(capacity).forEach((spot) => removedIds.add(spot.id));
+    });
+    const occupiedRemovals = spots.filter((spot) => removedIds.has(spot.id) && spot.currentAllocation);
+    if (occupiedRemovals.length) {
+      setValidationMessage(`A alteração removeria ${occupiedRemovals.length} vaga(s) ocupada(s). Transfira ou libere essas bicicletas antes de salvar a planta.`);
       return;
     }
     setValidationMessage(null);
+    const remainingSpots = spots.filter((spot) => !removedIds.has(spot.id));
     const created: BicycleSpot[] = [];
     const attached: BicycleSpot[] = [];
-    const existingIds = new Set(spots.map((spot) => spot.id));
+    const existingIds = new Set(remainingSpots.map((spot) => spot.id));
     const legacyUsageBySector: Record<string, number> = {};
 
-    elements.filter((element) => (element.kind || 'bike_module') === 'bike_module').forEach((element) => {
+    currentModules.forEach((element) => {
       const capacity = Math.max(1, element.spotCapacity || 8);
-      const currentCount = spots.filter((spot) => spot.floorPlanModuleId === element.id).length;
       const assignedSector = element.assignedSector || sector;
-      const legacySpots = spots.filter((spot) => spot.sector === assignedSector && !spot.floorPlanModuleId);
+      const moduleSpots = remainingSpots.filter((spot) => spot.floorPlanModuleId === element.id);
+      const currentCount = moduleSpots.length;
+      attached.push(...moduleSpots.filter((spot) => spot.sector !== assignedSector).map((spot) => ({ ...spot, sector: assignedSector })));
+      const legacySpots = remainingSpots.filter((spot) => spot.sector === assignedSector && !spot.floorPlanModuleId);
       const availableLegacySpots = Math.max(0, legacySpots.length - (legacyUsageBySector[assignedSector] || 0));
       const legacyUsedHere = Math.min(availableLegacySpots, Math.max(0, capacity - currentCount));
       const legacyStart = legacyUsageBySector[assignedSector] || 0;
@@ -140,7 +159,7 @@ export function FloorPlanEditor({ config, spots, onSave, onSyncSpots }: { config
       }
     });
 
-    if (created.length || attached.length) onSyncSpots?.({ created, attached });
+    if (created.length || attached.length || removedIds.size) onSyncSpots?.({ created, attached, removedIds: [...removedIds] });
     onSave({ ...config, customSectors: allSectors, sectorFloorPlans: { ...(config.sectorFloorPlans || {}), [sector]: { name: planName.trim() || 'Planta geral do bicicletário', modules: elements, updatedAt: new Date().toISOString() } } });
   };
   const startDrag = (event: React.PointerEvent, element: FloorPlanModule) => {

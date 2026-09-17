@@ -5,6 +5,7 @@ export interface SnapshotQueueEntry {
   condominiumId: string;
   payload: unknown;
   expectedVersion: number | null;
+  revision: number;
   createdAt: string;
   updatedAt: string;
   status: 'queued' | 'conflict';
@@ -45,7 +46,7 @@ async function getEntry(condominiumId: string): Promise<SnapshotQueueEntry | nul
   });
 }
 
-export async function queueSnapshot(input: Omit<SnapshotQueueEntry, 'id' | 'createdAt' | 'updatedAt' | 'status'>) {
+export async function queueSnapshot(input: Omit<SnapshotQueueEntry, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'revision'>) {
   if (typeof indexedDB === 'undefined') return null;
   const existing = await getEntry(input.condominiumId);
   const now = new Date().toISOString();
@@ -55,6 +56,7 @@ export async function queueSnapshot(input: Omit<SnapshotQueueEntry, 'id' | 'crea
     const conflictEntry: SnapshotQueueEntry = {
       ...existing,
       payload: input.payload,
+      revision: (existing.revision ?? 0) + 1,
       updatedAt: now,
     };
     const db = await openDatabase();
@@ -72,6 +74,7 @@ export async function queueSnapshot(input: Omit<SnapshotQueueEntry, 'id' | 'crea
     condominiumId: input.condominiumId,
     payload: input.payload,
     expectedVersion: input.expectedVersion,
+    revision: (existing?.revision ?? 0) + 1,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     status: 'queued',
@@ -86,13 +89,23 @@ export async function queueSnapshot(input: Omit<SnapshotQueueEntry, 'id' | 'crea
   return entry;
 }
 
-export async function removeQueuedSnapshot(condominiumId: string) {
-  if (typeof indexedDB === 'undefined') return;
+export async function removeQueuedSnapshot(condominiumId: string, expectedRevision?: number) {
+  if (typeof indexedDB === 'undefined') return false;
   const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<boolean>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).delete(entryId(condominiumId));
-    tx.oncomplete = () => { db.close(); resolve(); };
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.get(entryId(condominiumId));
+    let removed = false;
+    request.onsuccess = () => {
+      const current = request.result as SnapshotQueueEntry | undefined;
+      if (!current) return;
+      if (expectedRevision !== undefined && (current.revision ?? 0) !== expectedRevision) return;
+      store.delete(entryId(condominiumId));
+      removed = true;
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => { db.close(); resolve(removed); };
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }

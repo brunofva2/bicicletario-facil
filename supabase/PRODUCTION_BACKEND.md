@@ -17,17 +17,33 @@ como fonte de verdade para a operação:
 - `audit_logs`: trilha de decisões;
 - `storage.objects` no bucket privado `bike-photos`: fotos de bicicleta.
 
-As funções RPC `assign_bicycle_to_spot` e `release_spot_allocation` executam a
-alteração e a auditoria na mesma transação. Elas verificam o papel do usuário,
-o condomínio dos registros e bloqueiam as linhas envolvidas antes de decidir.
+Desde a migração `017_atomic_operational_commands.sql`, o navegador envia os IDs
+estáveis do snapshot e o banco resolve os UUIDs internos. As RPCs de atribuição,
+liberação, concessão, uso, arquivamento e decisão de solicitações executam a
+alteração e a auditoria na mesma transação. Aprovar um pedido e atribuir a vaga é
+uma única operação: se qualquer etapa falhar, nenhuma delas é gravada.
+
+A migração `018_spot_lifecycle_and_module_reconciliation.sql` acrescenta o ciclo
+de vida das vagas. Uma estrutura substituída deixa de aceitar novos vínculos,
+mas suas vagas e alocações encerradas permanecem disponíveis para auditoria. A
+mesma migração completa automaticamente o identificador técnico do módulo quando
+o nome do setor corresponde de forma inequívoca a um módulo configurado.
+
+A migração `019_public_spot_qr_identity.sql` separa a identidade física da vaga
+do número exibido. A plaqueta usa um UUID público estável, portanto números iguais
+em módulos diferentes não se confundem. A consulta anônima não devolve nome,
+unidade, telefone, e-mail ou chassi do morador.
 
 ## Implantação segura
 
 1. Faça backup do snapshot do piloto.
-2. Execute as migrações `001` a `009` em ordem no SQL Editor do Supabase.
+2. Execute as migrações `001` a `019` em ordem no SQL Editor do Supabase.
 3. Valide os comandos RPC com uma conta de síndico e outra de portaria.
-4. Migre a interface de vínculos para `src/lib/operations.ts`.
-5. Só então trate `condominium_snapshots` como cache/backup, e não como fonte primária.
+4. Confirme que `backend_integrity_check.sql` retorna zero em
+   `unexpected_direct_write_policies`, `retired_active_allocations` e nas três
+   verificações de duplicidade.
+5. Trate `condominium_snapshots` como cache/compatibilidade; vínculos ativos são
+   protegidos pelas tabelas operacionais e pelas RPCs.
 
 ## Regra de segurança
 

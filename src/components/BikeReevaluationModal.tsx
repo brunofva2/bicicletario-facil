@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { RegisteredBicycle, SystemConfig } from '../types';
 import { getBikeReevaluationInfo } from '../utils/reevaluation';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import {
   X,
   AlertTriangle,
@@ -53,6 +54,7 @@ export const BikeReevaluationModal: React.FC<BikeReevaluationModalProps> = ({
     'Pneus murchos / sem calibração',
     'Acúmulo denso de poeira e teias de aranha',
   ]);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(true, onClose);
 
   const toggleReason = (reason: string) => {
     if (selectedAbandonmentReasons.includes(reason)) {
@@ -96,7 +98,12 @@ export const BikeReevaluationModal: React.FC<BikeReevaluationModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         id="bike-reevaluation-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bike-reevaluation-modal-title"
+        tabIndex={-1}
         className="glass-panel rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden my-6 text-slate-800 border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -107,7 +114,7 @@ export const BikeReevaluationModal: React.FC<BikeReevaluationModalProps> = ({
               <Clock className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 font-mono tracking-tight flex items-center gap-2">
+              <h2 id="bike-reevaluation-modal-title" className="text-base font-bold text-slate-900 font-mono tracking-tight flex items-center gap-2">
                 <span>Reavaliação bienal</span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
                   Gestão Predial
@@ -119,7 +126,9 @@ export const BikeReevaluationModal: React.FC<BikeReevaluationModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Fechar reavaliação"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />

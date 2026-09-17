@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 
 interface SpotDetailDrawerProps {
+  readOnly?: boolean;
   spot: BicycleSpot | null;
   config: SystemConfig;
   logs: UsageLog[];
@@ -44,6 +45,7 @@ interface SpotDetailDrawerProps {
 }
 
 export const SpotDetailDrawer: React.FC<SpotDetailDrawerProps> = ({
+  readOnly = false,
   spot,
   config,
   logs,
@@ -413,7 +415,8 @@ export const SpotDetailDrawer: React.FC<SpotDetailDrawerProps> = ({
                   <span className="font-semibold text-slate-900 font-mono">{allocation.residentPhone || 'Não informado'}</span>
                   {allocation.residentPhone && (
                     <a
-                      href={`https://wa.me/55${allocation.residentPhone.replace(/\D/g, '')}`}
+                      aria-disabled={readOnly}
+                      href={readOnly ? undefined : `https://wa.me/55${allocation.residentPhone.replace(/\D/g, '')}`}
                       target="_blank"
                       rel="noreferrer"
                       className="text-emerald-700 hover:text-emerald-800 text-[10px] font-mono inline-flex items-center gap-0.5 ml-1 font-semibold"

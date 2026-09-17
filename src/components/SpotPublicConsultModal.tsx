@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 interface SpotPublicConsultModalProps {
+  readOnly?: boolean;
   spot: BicycleSpot | null;
   condominiumName: string;
   onClose: () => void;
@@ -24,6 +25,7 @@ interface SpotPublicConsultModalProps {
 }
 
 export const SpotPublicConsultModal: React.FC<SpotPublicConsultModalProps> = ({
+  readOnly = false,
   spot,
   condominiumName,
   onClose,
@@ -193,7 +195,8 @@ export const SpotPublicConsultModal: React.FC<SpotPublicConsultModalProps> = ({
 
               {/* Contact Admin button */}
               <a
-                href={`https://wa.me/?text=${whatsappOccupiedSpotMsg}`}
+                aria-disabled={readOnly}
+                href={readOnly ? undefined : `https://wa.me/?text=${whatsappOccupiedSpotMsg}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-mono text-xs font-bold transition-all shadow-xs"
@@ -231,7 +234,8 @@ export const SpotPublicConsultModal: React.FC<SpotPublicConsultModalProps> = ({
               {/* WhatsApp Action Button with spot number */}
               <a
                 id="request-spot-whatsapp-btn"
-                href={`https://wa.me/?text=${whatsappFreeSpotMsg}`}
+                aria-disabled={readOnly}
+                href={readOnly ? undefined : `https://wa.me/?text=${whatsappFreeSpotMsg}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full inline-flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-xs sm:text-sm font-bold shadow-lg hover:shadow-xl transition-all active:scale-98"

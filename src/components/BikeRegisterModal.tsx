@@ -3,6 +3,7 @@ import { RegisteredBicycle, BikeCategory, BicycleSpot } from '../types';
 import { SAMPLE_BIKE_PHOTOS } from '../mockData';
 import { getBikeReevaluationInfo } from '../utils/reevaluation';
 import { processImageFileToBase64 } from '../utils/imageUpload';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import {
   X,
   Bike,
@@ -76,6 +77,7 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const [isPhotoUploaded, setIsPhotoUploaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(true, onClose);
 
   // Dates & Biennial Reevaluation states
   const [registeredAtDate, setRegisteredAtDate] = useState<string>(
@@ -216,7 +218,12 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         id="bike-register-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bike-register-modal-title"
+        tabIndex={-1}
         className="glass-panel rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden my-6 text-slate-800 border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -227,7 +234,7 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
               <Building className="w-5 h-5 text-amber-400 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 font-mono tracking-tight">
+              <h2 id="bike-register-modal-title" className="text-base font-bold text-slate-900 font-mono tracking-tight">
                 {initialBike ? 'Ficha da bicicleta' : 'Cadastrar bicicleta'}
               </h2>
               <p className="text-xs text-slate-500 font-mono">
@@ -236,7 +243,9 @@ export const BikeRegisterModal: React.FC<BikeRegisterModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Fechar ficha da bicicleta"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-200/50 transition-colors"
           >
             <X className="w-5 h-5" />

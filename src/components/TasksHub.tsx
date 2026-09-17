@@ -5,17 +5,20 @@ import { supabase } from '../lib/supabase';
 import { getBikeReevaluationInfo } from '../utils/reevaluation';
 import { getBikeFallbackPhoto } from '../utils/offlineBikes';
 
-type TaskTopic = 'reevaluation' | 'queue' | 'irregularities';
+export type TaskTopic = 'reevaluation' | 'queue' | 'irregularities';
 type IrregularityRecord = { id: string; request_type: 'ocorrencia' | 'regularizacao'; resident_name: string; apartment: string; block: string; severity: 'normal' | 'attention' | 'urgent'; notes: string | null; };
 
-export function TasksHub({ bikes, spots, dueCount, condominiumId, onTabChange, onOpenTask, onStartReevaluation, onAssignSpot }: { bikes: RegisteredBicycle[]; spots: BicycleSpot[]; dueCount: number; condominiumId: string | null; onTabChange: (tab: 'dashboard' | 'map' | 'history' | 'bikes' | 'requests' | 'tasks') => void; onOpenTask: (focus: 'reevaluation' | 'queue' | 'irregularities') => void; onStartReevaluation: (bike: RegisteredBicycle) => void; onAssignSpot: (bike: RegisteredBicycle) => void }) {
-  const [selectedTopic, setSelectedTopic] = useState<TaskTopic>('reevaluation');
+export function TasksHub({ bikes, spots, dueCount, condominiumId, initialTopic, onTopicChange, onTabChange, onOpenTask, onStartReevaluation, onAssignSpot }: { bikes: RegisteredBicycle[]; spots: BicycleSpot[]; dueCount: number; condominiumId: string | null; initialTopic: TaskTopic; onTopicChange: (topic: TaskTopic) => void; onTabChange: (tab: 'dashboard' | 'map' | 'history' | 'bikes' | 'requests' | 'tasks') => void; onOpenTask: (focus: TaskTopic) => void; onStartReevaluation: (bike: RegisteredBicycle) => void; onAssignSpot: (bike: RegisteredBicycle) => void }) {
+  const [selectedTopic, setSelectedTopic] = useState<TaskTopic>(initialTopic);
   const [irregularities, setIrregularities] = useState<IrregularityRecord[]>([]);
   const detailPanelRef = useRef<HTMLElement>(null);
   const selectTopic = (topic: TaskTopic) => {
     setSelectedTopic(topic);
-    window.setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    onTopicChange(topic);
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    window.setTimeout(() => detailPanelRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }), 80);
   };
+  useEffect(() => setSelectedTopic(initialTopic), [initialTopic]);
   useEffect(() => {
     if (!supabase || !condominiumId) { setIrregularities([]); return; }
     void supabase.from('spot_requests').select('id, request_type, resident_name, apartment, block, severity, notes').eq('condominium_id', condominiumId).in('status', ['pending', 'waiting_list']).in('request_type', ['ocorrencia', 'regularizacao']).order('created_at', { ascending: true }).then(({ data }) => setIrregularities((data || []) as IrregularityRecord[]));

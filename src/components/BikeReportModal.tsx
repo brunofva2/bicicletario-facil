@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { RegisteredBicycle, BikeReportReason, SystemConfig } from '../types';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import {
   X,
   AlertTriangle,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 
 interface BikeReportModalProps {
+  readOnly?: boolean;
   bike: RegisteredBicycle | null;
   config: SystemConfig;
   initialReason?: BikeReportReason;
@@ -32,6 +34,7 @@ interface BikeReportModalProps {
 }
 
 export const BikeReportModal: React.FC<BikeReportModalProps> = ({
+  readOnly = false,
   bike,
   config,
   initialReason,
@@ -54,6 +57,7 @@ export const BikeReportModal: React.FC<BikeReportModalProps> = ({
 
   const [customMessageText, setCustomMessageText] = useState('');
   const [isCopied, setIsCopied] = useState(false);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(true, onClose);
 
   // Quick location suggestions
   const locationOptions = [
@@ -159,6 +163,7 @@ export const BikeReportModal: React.FC<BikeReportModalProps> = ({
 
   // Send to WhatsApp
   const handleSendWhatsApp = () => {
+    if (readOnly) return;
     const rawPhone = bike.residentPhone.replace(/\D/g, '');
     // Standardize Brazilian country code 55
     const cleanPhone = rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`;
@@ -191,7 +196,12 @@ export const BikeReportModal: React.FC<BikeReportModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         id="bike-report-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bike-report-modal-title"
+        tabIndex={-1}
         className="glass-panel rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden my-6 text-slate-800 border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -202,7 +212,7 @@ export const BikeReportModal: React.FC<BikeReportModalProps> = ({
               <MessageCircle className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 font-mono tracking-tight flex items-center gap-2">
+              <h2 id="bike-report-modal-title" className="text-base font-bold text-slate-900 font-mono tracking-tight flex items-center gap-2">
                 <span>Notificação / Contato via WhatsApp</span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
                   Condomínio
@@ -214,7 +224,9 @@ export const BikeReportModal: React.FC<BikeReportModalProps> = ({
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Fechar notificação"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -620,6 +632,8 @@ export const BikeReportModal: React.FC<BikeReportModalProps> = ({
             <button
               type="button"
               id="send-whatsapp-report-btn"
+              disabled={readOnly}
+              title={readOnly ? 'Disponível para a gestão. Visitante somente leitura.' : undefined}
               onClick={handleSendWhatsApp}
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-mono font-bold text-xs shadow-md hover:shadow-lg transition-all"
             >

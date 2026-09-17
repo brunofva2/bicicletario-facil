@@ -525,8 +525,8 @@ export const HelpGuideModal: React.FC<HelpGuideModalProps> = ({
                     </p>
                     <p className="text-emerald-800 leading-relaxed">
                       O Bicicletário Fácil usa uma base em nuvem para que administração, síndico e portaria trabalhem com os mesmos dados.
-                      Enquanto houver conexão, alterações são sincronizadas automaticamente. Uma cópia no navegador ajuda na contingência durante instabilidades, mas a 
-                      <strong> nuvem é a fonte oficial</strong>. Mantenha o acesso à internet ativo e faça backup periódico em Ajustes.
+                      Enquanto houver conexão, alterações são sincronizadas automaticamente. Cadastros e configurações compatíveis ficam guardados no aparelho durante instabilidades; vínculos de vagas e decisões que dependem de concorrência exigem conexão. Em caso de conflito, o app preserva a cópia local para revisão e não sobrescreve a nuvem automaticamente. A
+                      <strong> nuvem é a fonte oficial</strong>. Faça backup periódico em Ajustes.
                     </p>
                   </div>
                 </div>

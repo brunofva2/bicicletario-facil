@@ -49,7 +49,7 @@ interface MasterMaintenancePanelProps {
     newSpots: BicycleSpot[],
     updatedConfig: SystemConfig,
     preserveAllocations: boolean
-  ) => void;
+  ) => boolean | void;
   onExportCondoPackage: () => void;
   onImportCondoPackage: (packageData: any) => void;
 }
@@ -229,7 +229,13 @@ export const MasterMaintenancePanel: React.FC<MasterMaintenancePanelProps> = ({
     }
 
     const preserveAllocations = applyMode === 'preserve';
-    const newSpots = generateSpotsFromModules(modules, spots, preserveAllocations);
+    let newSpots: BicycleSpot[];
+    try {
+      newSpots = generateSpotsFromModules(modules, spots, preserveAllocations);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Não foi possível preservar os vínculos da estrutura.');
+      return;
+    }
 
     const updatedConfig: SystemConfig = {
       ...config,
@@ -246,7 +252,7 @@ export const MasterMaintenancePanel: React.FC<MasterMaintenancePanelProps> = ({
       clientProfiles: savedProfiles,
     };
 
-    onApplyNewStructure(newSpots, updatedConfig, preserveAllocations);
+    if (onApplyNewStructure(newSpots, updatedConfig, preserveAllocations) === false) return;
     setConfirmModalOpen(false);
     setProfileSuccessMsg(
       `Estrutura de ${totalSpots} vagas gerada com sucesso (${preserveAllocations ? 'alocações preservadas' : 'nova implantação limpa'})!`
@@ -1023,7 +1029,7 @@ export const MasterMaintenancePanel: React.FC<MasterMaintenancePanelProps> = ({
             </div>
 
             <p className="text-xs font-mono text-slate-300 leading-relaxed max-w-2xl">
-              Este recurso fica <strong>restrito à Manutenção Master</strong> para que o síndico e moradores não tenham acesso a prompts ou configurações. Como prestador de serviço, instale o aplicativo diretamente no computador da portaria ou administração. O sistema será aberto em janela dedicada, sem barra de navegador, com ícone oficial na Área de Trabalho e funcionamento 100% offline.
+              Este recurso fica <strong>restrito à Manutenção Master</strong> para que o síndico e moradores não tenham acesso a prompts ou configurações. Como prestador de serviço, instale o aplicativo diretamente no computador da portaria ou administração. O sistema será aberto em janela dedicada, sem barra de navegador e com ícone oficial na Área de Trabalho. Cadastros compatíveis ficam guardados durante instabilidades; vínculos e decisões operacionais exigem conexão.
             </p>
 
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">

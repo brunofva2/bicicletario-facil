@@ -12,10 +12,13 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
+import { getSpotPublicSlug } from '../lib/operations';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 
 interface QrCodeModalProps {
   spot: BicycleSpot | null;
   condominiumName: string;
+  condominiumId?: string | null;
   onClose: () => void;
   onOpenPublicConsult?: (spot: BicycleSpot) => void;
 }
@@ -23,31 +26,50 @@ interface QrCodeModalProps {
 export const QrCodeModal: React.FC<QrCodeModalProps> = ({
   spot,
   condominiumName,
+  condominiumId,
   onClose,
   onOpenPublicConsult,
 }) => {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
-
-  const publicConsultUrl = spot
-    ? `${window.location.origin}${window.location.pathname}?vaga=${encodeURIComponent(spot.spotNumber)}`
-    : '';
+  const [publicConsultUrl, setPublicConsultUrl] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(Boolean(spot), onClose);
 
   useEffect(() => {
-    if (!spot || !publicConsultUrl) return;
+    let active = true;
+    setQrDataUrl('');
+    setPublicConsultUrl('');
+    setLinkError(null);
+    if (!spot) return () => { active = false; };
 
-    // The QR code contains the direct public URL so any native smartphone camera opens the spot consultation
-    QRCode.toDataURL(publicConsultUrl, {
-      width: 400,
-      margin: 2,
-      color: {
-        dark: '#0f172a',
-        light: '#ffffff',
-      },
-    })
-      .then((url) => setQrDataUrl(url))
-      .catch((err) => console.error('Erro ao gerar QR Code:', err));
-  }, [spot, publicConsultUrl]);
+    const resolveLink = async () => {
+      try {
+        const query = new URLSearchParams();
+        if (condominiumId) {
+          const publicSlug = await getSpotPublicSlug({ condominiumId, spotLegacyId: spot.id });
+          query.set('spot', publicSlug);
+        } else {
+          // Desenvolvimento local: ainda usa o ID técnico, nunca o número
+          // visível, para não confundir vagas iguais em módulos diferentes.
+          query.set('vagaId', spot.id);
+        }
+        const url = `${window.location.origin}${window.location.pathname}?${query.toString()}`;
+        if (!active) return;
+        setPublicConsultUrl(url);
+        const qrUrl = await QRCode.toDataURL(url, {
+          width: 400,
+          margin: 2,
+          color: { dark: '#0f172a', light: '#ffffff' },
+        });
+        if (active) setQrDataUrl(qrUrl);
+      } catch (error) {
+        if (active) setLinkError(error instanceof Error ? error.message : 'Não foi possível gerar a consulta pública desta vaga.');
+      }
+    };
+    void resolveLink();
+    return () => { active = false; };
+  }, [spot, condominiumId]);
 
   if (!spot) return null;
 
@@ -79,7 +101,12 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         id="qr-code-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="qr-code-modal-title"
+        tabIndex={-1}
         className="glass-panel rounded-2xl max-w-md w-full shadow-2xl overflow-hidden text-slate-800 border border-slate-200 bg-white"
         onClick={(e) => e.stopPropagation()}
       >
@@ -88,7 +115,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
           <div className="flex items-center gap-2">
             <QrIcon className="w-5 h-5 text-slate-900 stroke-[2.2]" />
             <div>
-              <h3 className="font-bold text-slate-900 text-sm font-mono tracking-tight">
+              <h3 id="qr-code-modal-title" className="font-bold text-slate-900 text-sm font-mono tracking-tight">
                 Placa de Identificação da Vaga
               </h3>
               <p className="text-[11px] text-slate-500 font-mono">
@@ -98,7 +125,9 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
           </div>
           <button
             id="close-qr-modal-btn"
+            type="button"
             onClick={onClose}
+            aria-label="Fechar QR Code da vaga"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-200/50 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -152,7 +181,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
                 />
               ) : (
                 <div className="w-44 h-44 flex items-center justify-center text-slate-400 text-xs font-mono">
-                  Gerando QR Code...
+                  {linkError || 'Gerando QR Code...'}
                 </div>
               )}
             </div>
@@ -163,7 +192,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
             </div>
 
             <p className="text-[11px] text-slate-600 leading-snug max-w-xs font-medium">
-              Aponte a câmera do seu celular para verificar o apartamento e bike autorizada ou solicitar viabilidade de vaga livre à administração.
+              Aponte a câmera do celular para conferir a identificação física, a situação da vaga e os dados não pessoais da bicicleta autorizada.
             </p>
           </div>
 
@@ -177,7 +206,8 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopyLink}
-                className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1"
+                disabled={!publicConsultUrl}
+                className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 flex items-center gap-1 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Copiar link de consulta externa"
               >
                 {copiedLink ? (

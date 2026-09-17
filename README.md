@@ -83,6 +83,15 @@ fica marcada como aguardando envio e é sincronizada quando o aparelho reconecta
 gestor tenha alterado o mesmo condomínio, o app sinaliza conflito e não sobrescreve
 dados automaticamente.
 
+Ao reabrir o aplicativo, a cópia pendente é restaurada na tela antes do envio.
+Cada item da fila possui uma revisão própria, evitando que a confirmação de um
+envio antigo remova uma alteração mais recente. Em conflitos, o usuário pode
+baixar a cópia local antes de optar explicitamente pela versão da nuvem.
+
+Vínculos, liberações, concessões e decisões de solicitações continuam online:
+essas ações dependem de bloqueios transacionais para impedir duas pessoas de
+ocuparem a mesma vaga.
+
 ### Fotos de bicicletas
 
 **Situação atual:** fotos podem estar dentro do snapshot do navegador.
@@ -142,6 +151,10 @@ Execute as migrações em ordem no SQL Editor. As fases relevantes são:
 3. `010` a `012`: etapas preparatórias da importação do piloto.
 4. `013_final_snapshot_migration.sql`: correção definitiva para vagas repetidas entre módulos e recuperação de vínculos antigos.
 5. `014_offline_snapshot_sync.sql`: fila offline com versão e detecção de conflito.
+6. `015` e `016`: normalização dos módulos e sincronização dinâmica da planta com as vagas operacionais.
+7. `017_atomic_operational_commands.sql`: vínculos, liberações, concessões, uso e decisões de solicitações atômicas; execute antes de usar esta versão do frontend na nuvem.
+8. `018_spot_lifecycle_and_module_reconciliation.sql`: normaliza o módulo técnico das vagas, aposenta estruturas substituídas e conserva vínculos encerrados no histórico.
+9. `019_public_spot_qr_identity.sql`: faz cada QR apontar para o UUID público estável da vaga física e limita a consulta anônima a dados não pessoais.
 
 Antes de uma migração de dados, faça backup do `payload` em
 `condominium_snapshots` e valide primeiro no condomínio de teste.
@@ -160,6 +173,28 @@ Antes de uma migração de dados, faça backup do `payload` em
 | Cadastro de bicicletas | `src/components/BikeCatalogView.tsx` e `BikeRegisterModal.tsx` |
 
 ## Checklist antes de publicar
+
+### Auditoria — Grupo 1: identidade e isolamento local
+
+- Vínculos usam o ID da bicicleta e da vaga; nome, apartamento e número visível não identificam um vínculo sozinhos. Duas bicicletas do mesmo apartamento continuam independentes.
+- A regeneração mantém IDs por módulo/posição e recusa remover vagas ocupadas no modo de preservação. Capacidades diferentes e acima de 24 vagas são suportadas.
+- Cache local em `bicicletario:workspace:v2:...`, separado por usuário e condomínio. O visitante lê somente a demonstração e não grava esse cache.
+- As antigas chaves globais `condo_*_v1` são preservadas, mas não são importadas automaticamente para contas na nuvem: elas não comprovam a qual condomínio pertencem. Antes de publicar para usuários com alterações locais antigas, exporte um backup no ambiente anterior e confira o condomínio antes de restaurar. Não limpe o armazenamento do navegador para migrar.
+- Esta etapa não exige SQL. A integração transacional com as tabelas operacionais, RLS e a revisão completa de concorrência/fila offline permanecem em etapas posteriores. O isolamento do cache não equivale a criptografia nem substitui autorização no servidor.
+
+Verificação local: `npm test` executa regressões de identidade, cache e componentes React em DOM simulado; `npm run lint` verifica TypeScript; `npm run build` gera a versão de produção. Os testes não acessam nem alteram o Supabase real.
+
+Exemplo de alteração ainda não automatizada: remover um módulo ocupado preservando seus vínculos. Primeiro transfira ou libere as bicicletas; o sistema não escolhe outras vagas por conta própria.
+
+### Auditoria — Grupo 3: sincronização offline
+
+- A fila pendente é recuperada como estado visível antes de qualquer reenvio.
+- Envios são serializados e a remoção usa a revisão exata confirmada pelo servidor.
+- Uma versão mais nova na nuvem abre conflito sem apagar ou sobrescrever a cópia local.
+- O conflito permite baixar o JSON local antes de escolher a versão da nuvem.
+- Operações concorrentes de vaga permanecem bloqueadas sem conexão e informam essa limitação de forma explícita.
+
+### Validação de publicação
 
 - Confirmar e-mail ativado no Supabase.
 - RLS ativo em todas as tabelas.

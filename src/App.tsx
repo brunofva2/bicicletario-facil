@@ -35,78 +35,51 @@ import { DesktopNav } from './components/DesktopNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { SpotRequestsView, SpotRequest } from './components/SpotRequestsView';
 import { DashboardView } from './components/DashboardView';
-import { TasksHub } from './components/TasksHub';
+import { TasksHub, type TaskTopic } from './components/TasksHub';
 import { useAuth } from './auth/AuthGate';
 import { useCloudSnapshot } from './hooks/useCloudSnapshot';
-import { supabase } from './lib/supabase';
+import {
+  archiveBicycle,
+  assignBicycleToSpot,
+  registerSpotUsage,
+  releaseSpotAllocation,
+  updateSpotConcession,
+} from './lib/operations';
+import { emptyWorkspace, readWorkspace, writeWorkspace, workspaceKey } from './lib/workspaceCache';
+import { isAllocatedToBike, releaseBikeSpots, reconcileBikeSpots } from './utils/bicycleIdentity';
 import { ArrowLeft, CheckCircle2, Info, X, FileDown, Plus } from 'lucide-react';
 
-const SPOTS_STORAGE_KEY = 'condo_bike_spots_v1';
-const LOGS_STORAGE_KEY = 'condo_bike_logs_v1';
-const CONFIG_STORAGE_KEY = 'condo_bike_config_v1';
-const BIKES_STORAGE_KEY = 'condo_registered_bikes_v1';
+const DEMO_WORKSPACE = { config: DEFAULT_CONFIG, spots: INITIAL_SPOTS, logs: INITIAL_LOGS, registeredBikes: INITIAL_REGISTERED_BIKES };
 
 export default function App() {
+  const auth = useAuth();
+  // A context change must discard open forms and React state as well as switch cache keys.
+  return <CondominiumApp key={`${workspaceKey(auth)}:${auth.effectiveRole}:${auth.isSupportMode}`} />;
+}
+
+function CondominiumApp() {
   const { userId, profile, isCloudMode, signOut, activeCondominiumId, effectiveRole, isSupportMode, isVisitor, exitSupportMode } = useAuth();
+  const workspaceContext = useMemo(() => ({ userId, isCloudMode, activeCondominiumId, isVisitor }), [userId, isCloudMode, activeCondominiumId, isVisitor]);
   const canManageCondominium = !isVisitor && (!isCloudMode || effectiveRole === 'nobrutec_admin' || effectiveRole === 'syndic');
   // A planta e a manutenção avançada fazem parte da implantação técnica da Nobrutec.
   // Síndicos e portaria nunca recebem permissão de edição, inclusive em modo de teste.
   const canUseMasterMaintenance = !isVisitor && (effectiveRole === 'nobrutec_admin' || profile?.role === 'nobrutec_admin');
-  // Load state with fallback to initial mock data
-  const [spots, setSpots] = useState<BicycleSpot[]>(() => {
-    try {
-      const saved = localStorage.getItem(SPOTS_STORAGE_KEY);
-      if (!saved) return INITIAL_SPOTS;
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_SPOTS;
-    } catch {
-      return INITIAL_SPOTS;
-    }
-  });
-
-  const [logs, setLogs] = useState<UsageLog[]>(() => {
-    try {
-      const saved = localStorage.getItem(LOGS_STORAGE_KEY);
-      if (!saved) return INITIAL_LOGS;
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : INITIAL_LOGS;
-    } catch {
-      return INITIAL_LOGS;
-    }
-  });
-
-  const [config, setConfig] = useState<SystemConfig>(() => {
-    try {
-      const saved = localStorage.getItem(CONFIG_STORAGE_KEY);
-      if (!saved) return DEFAULT_CONFIG;
-      const parsed = JSON.parse(saved);
-      return parsed && typeof parsed === 'object' && parsed.condominiumName
-        ? { ...DEFAULT_CONFIG, ...parsed }
-        : DEFAULT_CONFIG;
-    } catch {
-      return DEFAULT_CONFIG;
-    }
-  });
-
-  const [registeredBikes, setRegisteredBikes] = useState<RegisteredBicycle[]>(() => {
-    try {
-      const saved = localStorage.getItem(BIKES_STORAGE_KEY);
-      if (!saved) return INITIAL_REGISTERED_BIKES;
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_REGISTERED_BIKES;
-    } catch {
-      return INITIAL_REGISTERED_BIKES;
-    }
-  });
+  const [initialWorkspace] = useState(() => readWorkspace(workspaceContext, DEMO_WORKSPACE, localStorage));
+  const [spots, setSpots] = useState<BicycleSpot[]>(initialWorkspace.spots);
+  const [logs, setLogs] = useState<UsageLog[]>(initialWorkspace.logs);
+  const [config, setConfig] = useState<SystemConfig>(initialWorkspace.config);
+  const [registeredBikes, setRegisteredBikes] = useState<RegisteredBicycle[]>(initialWorkspace.registeredBikes);
 
   // UI state
   const [activeTab, setActiveTab] = useState<'dashboard' | 'map' | 'history' | 'bikes' | 'requests' | 'tasks'>('dashboard');
   const [taskReturnContext, setTaskReturnContext] = useState<'bikes' | 'requests' | null>(null);
+  const [taskTopic, setTaskTopic] = useState<TaskTopic>('reevaluation');
   const [selectedOccupiedSpot, setSelectedOccupiedSpot] = useState<BicycleSpot | null>(null);
   const [spotToAllocate, setSpotToAllocate] = useState<BicycleSpot | null>(null);
   const [initialBikeForAllocation, setInitialBikeForAllocation] = useState<RegisteredBicycle | null>(null);
   const [bikeAwaitingSpotChoice, setBikeAwaitingSpotChoice] = useState<RegisteredBicycle | null>(null);
   const [approvalRequest, setApprovalRequest] = useState<SpotRequest | null>(null);
+  const [requestsRefreshKey, setRequestsRefreshKey] = useState(0);
   const [qrModalSpot, setQrModalSpot] = useState<BicycleSpot | null>(null);
   const [publicConsultSpot, setPublicConsultSpot] = useState<BicycleSpot | null>(null);
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(false);
@@ -146,20 +119,22 @@ export default function App() {
     };
   }), [spots, registeredBikes]);
 
-  // URL query parameter listener for direct QR code scans outside the app (e.g., ?vaga=V-01)
+  // Consulta local/de desenvolvimento usa o ID técnico. Em produção, o UUID
+  // público é resolvido antes do login pelo AuthGate.
   useEffect(() => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
-      const vagaParam = urlParams.get('vaga');
-      if (vagaParam) {
-        const found = displaySpots.find(
-          (s) =>
-            s.spotNumber.toLowerCase() === vagaParam.trim().toLowerCase() ||
-            s.id.toLowerCase() === vagaParam.trim().toLowerCase()
-        );
+      const vagaId = urlParams.get('vagaId');
+      const legacyNumber = urlParams.get('vaga');
+      if (vagaId) {
+        const found = displaySpots.find((spot) => spot.id === vagaId || spot.qrCodeValue === vagaId);
         if (found) {
           setPublicConsultSpot(found);
         }
+      } else if (legacyNumber) {
+        const matches = displaySpots.filter((spot) => spot.spotNumber.toLocaleLowerCase() === legacyNumber.trim().toLocaleLowerCase());
+        // Links antigos por número só abrem quando a identificação é inequívoca.
+        if (matches.length === 1) setPublicConsultSpot(matches[0]);
       }
     } catch (err) {
       console.warn('Erro ao processar parâmetro de URL da vaga:', err);
@@ -210,15 +185,11 @@ export default function App() {
   }, [registeredBikes]);
 
   const handleCloudLoad = React.useCallback((snapshot: { config: SystemConfig; spots: BicycleSpot[]; registeredBikes: RegisteredBicycle[]; logs: UsageLog[] }) => {
-    // Snapshots criados antes da planta-base não possuem essa configuração.
-    // Fazemos o complemento somente quando não há módulos salvos, preservando
-    // integralmente qualquer planta real já configurada para o condomínio.
-    const cloudFloorPlans = snapshot.config.sectorFloorPlans;
-    const hasSavedFloorPlan = Object.values(cloudFloorPlans || {}).some((plan) => plan.modules.length > 0);
+    // Empty plants are valid. Demo modules must never be added to a real condominium.
     setConfig({
-      ...DEFAULT_CONFIG,
+      ...emptyWorkspace().config,
       ...snapshot.config,
-      sectorFloorPlans: hasSavedFloorPlan ? cloudFloorPlans : DEFAULT_CONFIG.sectorFloorPlans,
+      sectorFloorPlans: snapshot.config.sectorFloorPlans || {},
     });
     setSpots(snapshot.spots);
     setRegisteredBikes(snapshot.registeredBikes);
@@ -229,8 +200,8 @@ export default function App() {
     setToastMessage({ text: message, type: 'info' });
   }, []);
 
-  const { syncState, pendingChanges } = useCloudSnapshot({
-    condominiumId: activeCondominiumId,
+  const { cloudReady, syncState, pendingChanges, exportPendingChanges, discardPendingAndLoadCloud } = useCloudSnapshot({
+    condominiumId: isVisitor ? null : activeCondominiumId,
     userId: canManageCondominium ? userId : null,
     config,
     spots,
@@ -240,44 +211,41 @@ export default function App() {
     onError: handleCloudError,
   });
 
-  // Sync to localStorage
+  // Save the entire local workspace together, scoped to the authenticated context.
   useEffect(() => {
     try {
-      localStorage.setItem(SPOTS_STORAGE_KEY, JSON.stringify(spots));
+      writeWorkspace(workspaceContext, { config, spots, registeredBikes, logs }, localStorage);
     } catch (e) {
       console.warn('Storage save failed:', e);
+      setToastMessage({ type: 'info', text: 'Não foi possível guardar os dados neste aparelho. Verifique o armazenamento antes de sair.' });
     }
-  }, [spots]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(logs));
-    } catch (e) {
-      console.warn('Storage save failed:', e);
-    }
-  }, [logs]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
-    } catch (e) {
-      console.warn('Storage save failed:', e);
-    }
-  }, [config]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(BIKES_STORAGE_KEY, JSON.stringify(registeredBikes));
-    } catch (e) {
-      console.warn('Storage save failed:', e);
-    }
-  }, [registeredBikes]);
+  }, [workspaceContext, config, spots, registeredBikes, logs]);
 
   const showToast = (text: string, type: 'success' | 'info' = 'success') => {
     setToastMessage({ text, type });
     setTimeout(() => {
       setToastMessage(null);
     }, 4000);
+  };
+
+  const runCloudCommand = async (command: () => Promise<unknown>, fallbackMessage: string) => {
+    if (!isCloudMode) return true;
+    if (!activeCondominiumId) {
+      showToast('Nenhum condomínio está ativo para confirmar esta operação.', 'info');
+      return false;
+    }
+    if (!cloudReady) {
+      showToast('Aguarde o carregamento dos dados atuais antes de alterar o condomínio.', 'info');
+      return false;
+    }
+    try {
+      await command();
+      return true;
+    } catch (error) {
+      const detail = typeof error === 'object' && error && 'message' in error ? String(error.message) : '';
+      showToast(detail || fallbackMessage, 'info');
+      return false;
+    }
   };
 
   // Compute how many bikes are due for biennial reevaluation (+2 years)
@@ -309,7 +277,16 @@ export default function App() {
   };
 
   // Register usage / check-in
-  const handleRegisterUsage = (spot: BicycleSpot) => {
+  const handleRegisterUsage = async (spot: BicycleSpot) => {
+    if (!canManageCondominium) {
+      showToast('Este acesso permite somente consultar os registros de uso.', 'info');
+      return;
+    }
+    const confirmed = await runCloudCommand(
+      () => registerSpotUsage({ condominiumId: activeCondominiumId!, spotLegacyId: spot.id }),
+      'Não foi possível confirmar o uso desta vaga.'
+    );
+    if (!confirmed) return;
     const nowIso = new Date().toISOString();
 
     const updatedSpots = spots.map((s) => {
@@ -351,20 +328,63 @@ export default function App() {
   // Confirm spot allocation
   const handleConfirmAllocation = async (
     spot: BicycleSpot,
-    allocationData: ResidentAllocation,
+    allocationData: Omit<ResidentAllocation, 'id' | 'allocatedAt'>,
     selectedBikeId?: string
   ) => {
     if (!canManageCondominium) {
       showToast('Somente síndico ou administradora podem alterar vagas.', 'info');
-      return;
+      return false;
+    }
+    const currentSpot = spots.find((item) => item.id === spot.id);
+    if (!currentSpot || currentSpot.currentAllocation) {
+      showToast('Esta vaga não está mais disponível. Escolha outra vaga livre.', 'info');
+      return false;
+    }
+    const selectedBike = selectedBikeId ? registeredBikes.find((bike) => bike.id === selectedBikeId) : undefined;
+    if (selectedBike && (selectedBike.spotId || spots.some((item) => isAllocatedToBike(item, selectedBike)))) {
+      showToast('Esta bicicleta já tem uma vaga. Libere o vínculo atual antes de escolher outra.', 'info');
+      return false;
     }
     const nowIso = new Date().toISOString();
+    const bicycleId = selectedBikeId || crypto.randomUUID();
+    const operationalBike: RegisteredBicycle = selectedBike || {
+      id: bicycleId,
+      residentName: allocationData.residentName,
+      apartment: allocationData.apartment,
+      block: allocationData.block,
+      residentPhone: allocationData.residentPhone,
+      residentEmail: allocationData.residentEmail,
+      brandModel: allocationData.bicycle.brandModel,
+      color: allocationData.bicycle.color,
+      category: allocationData.bicycle.category,
+      tagNumber: allocationData.bicycle.tagNumber,
+      serialNumber: allocationData.bicycle.serialNumber,
+      distinguishingFeatures: allocationData.bicycle.distinguishingFeatures,
+      notes: allocationData.bicycle.notes,
+      photoUrl: allocationData.photoUrl || allocationData.bicycle.brandModel,
+      registeredAt: nowIso,
+      reevaluationStatus: 'em_dia',
+    };
+    const confirmed = await runCloudCommand(
+      () => assignBicycleToSpot({
+        condominiumId: activeCondominiumId!,
+        spotLegacyId: currentSpot.id,
+        bicycle: operationalBike,
+        concessionType: allocationData.concessionType,
+        concessionEndDate: allocationData.endDate,
+        requestId: approvalRequest?.id,
+        note: approvalRequest?.notes || undefined,
+      }),
+      'Não foi possível confirmar este vínculo no condomínio.'
+    );
+    if (!confirmed) return false;
+    const allocation: ResidentAllocation = { ...allocationData, id: crypto.randomUUID(), allocatedAt: nowIso, spotId: currentSpot.id, bicycleId };
 
     const updatedSpots = spots.map((s) => {
       if (s.id === spot.id) {
         return {
           ...s,
-          currentAllocation: allocationData,
+          currentAllocation: allocation,
           lastUsageDate: nowIso,
         };
       }
@@ -374,7 +394,7 @@ export default function App() {
     // If an existing registered bicycle was linked, update its spotId & spotNumber
     if (selectedBikeId) {
       setRegisteredBikes((prev) =>
-        prev.map((b) => {
+        prev.some((bike) => bike.id === selectedBikeId) ? prev.map((b) => {
           if (b.id === selectedBikeId) {
             return {
               ...b,
@@ -383,28 +403,14 @@ export default function App() {
             };
           }
           return b;
-        })
+        }) : [{ ...operationalBike, spotId: spot.id, spotNumber: spot.spotNumber }, ...prev]
       );
     } else {
       // Auto-register bicycle into general catalog
       const autoRegisteredBike: RegisteredBicycle = {
-        id: `bike-${Date.now()}`,
-        residentName: allocationData.residentName,
-        apartment: allocationData.apartment,
-        block: allocationData.block,
-        residentPhone: allocationData.residentPhone,
-        residentEmail: allocationData.residentEmail,
-        brandModel: allocationData.bicycle.brandModel,
-        color: allocationData.bicycle.color,
-        category: allocationData.bicycle.category,
-        tagNumber: allocationData.bicycle.tagNumber,
-        distinguishingFeatures: allocationData.bicycle.distinguishingFeatures,
-        notes: allocationData.bicycle.notes,
-        photoUrl: allocationData.photoUrl || allocationData.bicycle.brandModel,
+        ...operationalBike,
         spotId: spot.id,
         spotNumber: spot.spotNumber,
-        registeredAt: nowIso,
-        reevaluationStatus: 'em_dia',
       };
       setRegisteredBikes((prev) => [autoRegisteredBike, ...prev]);
     }
@@ -425,35 +431,28 @@ export default function App() {
 
     setSpots(updatedSpots);
     setLogs([newLog, ...logs]);
-    if (approvalRequest && supabase) {
-      const { error } = await supabase
-        .from('spot_requests')
-        .update({ status: 'approved', assigned_spot_id: spot.id, decided_at: nowIso, decided_by: userId })
-        .eq('id', approvalRequest.id);
-      if (error) {
-        showToast('A vaga foi vinculada, mas não foi possível atualizar a solicitação. Tente novamente.', 'info');
-      } else {
-        setApprovalRequest(null);
-      }
+    if (approvalRequest) {
+      setApprovalRequest(null);
+      setRequestsRefreshKey((value) => value + 1);
     }
     setSpotToAllocate(null);
     setInitialBikeForAllocation(null);
 
-    const awaitingCloudConfirmation = isCloudMode && typeof navigator !== 'undefined' && !navigator.onLine;
-    showToast(
-      awaitingCloudConfirmation
-        ? `Vínculo da vaga ${spot.spotNumber} guardado neste aparelho. A confirmação ocorrerá quando a conexão voltar.`
-        : `Vaga Suspensa ${spot.spotNumber} vinculada com sucesso ao Apto ${allocationData.apartment}!`,
-      awaitingCloudConfirmation ? 'info' : 'success'
-    );
+    showToast(`Vaga Suspensa ${spot.spotNumber} vinculada com sucesso ao Apto ${allocationData.apartment}!`);
+    return true;
   };
 
   // Release / Vacate spot
-  const handleReleaseSpot = (spot: BicycleSpot) => {
+  const handleReleaseSpot = async (spot: BicycleSpot) => {
     if (!canManageCondominium) {
       showToast('Somente síndico ou administradora podem liberar vagas.', 'info');
       return;
     }
+    const confirmed = await runCloudCommand(
+      () => releaseSpotAllocation({ condominiumId: activeCondominiumId!, spotLegacyId: spot.id }),
+      'Não foi possível confirmar a liberação desta vaga.'
+    );
+    if (!confirmed) return;
     const nowIso = new Date().toISOString();
     const previousAlloc = spot.currentAllocation;
 
@@ -498,7 +497,7 @@ export default function App() {
   };
 
   // Edit concession term or type
-  const handleUpdateConcession = (
+  const handleUpdateConcession = async (
     spot: BicycleSpot,
     concessionType: ConcessionType,
     endDate?: string
@@ -507,6 +506,14 @@ export default function App() {
       showToast('Somente síndico ou administradora podem alterar concessões.', 'info');
       return;
     }
+    const confirmed = await runCloudCommand(
+      () => updateSpotConcession({
+        condominiumId: activeCondominiumId!, spotLegacyId: spot.id,
+        concessionType, concessionEndDate: endDate,
+      }),
+      'Não foi possível confirmar a alteração da concessão.'
+    );
+    if (!confirmed) return;
     const nowIso = new Date().toISOString();
 
     const updatedSpots = spots.map((s) => {
@@ -588,27 +595,35 @@ export default function App() {
 
   // Save config
   const handleSaveConfig = (newConfig: SystemConfig) => {
+    if (!canManageCondominium) return;
     setConfig(newConfig);
     showToast('Configurações do condomínio salvas com sucesso!');
   };
 
-  const handleSyncPlanSpots = ({ created, attached }: { created: BicycleSpot[]; attached: BicycleSpot[] }) => {
-    if (!created.length && !attached.length) return;
+  const handleSyncPlanSpots = ({ created, attached, removedIds = [] }: { created: BicycleSpot[]; attached: BicycleSpot[]; removedIds?: string[] }) => {
+    if (!canUseMasterMaintenance) return;
+    if (!created.length && !attached.length && !removedIds.length) return;
     setSpots((current) => {
       const attachedById = new Map(attached.map((spot) => [spot.id, spot]));
-      const existingIds = new Set(current.map((spot) => spot.id));
-      const updated = current.map((spot) => attachedById.get(spot.id) || spot);
+      const removed = new Set(removedIds);
+      const retained = current.filter((spot) => !removed.has(spot.id));
+      const existingIds = new Set(retained.map((spot) => spot.id));
+      const updated = retained.map((spot) => attachedById.has(spot.id)
+        ? { ...spot, ...attachedById.get(spot.id)! }
+        : spot);
       return [...updated, ...created.filter((spot) => !existingIds.has(spot.id))];
     });
     const messages = [
       created.length ? `${created.length} vaga(s) criada(s)` : '',
       attached.length ? `${attached.length} vaga(s) vinculada(s) ao módulo` : '',
+      removedIds.length ? `${removedIds.length} vaga(s) livre(s) aposentada(s)` : '',
     ].filter(Boolean);
     showToast(`${messages.join(' e ')}. Mapa e cartões foram sincronizados.`);
   };
 
   // Save or remove sector identification photo
   const handleSaveSectorPhoto = (sectorName: string, data: SectorPhotoData | null) => {
+    if (!canManageCondominium) return;
     setConfig((prev) => {
       const currentSectorPhotos = { ...(prev.sectorPhotos || {}) };
       if (!data) {
@@ -655,13 +670,14 @@ export default function App() {
 
   // Import JSON backup
   const handleImportBackup = (backupData: unknown) => {
+    if (!canManageCondominium) return;
     try {
       if (!backupData || typeof backupData !== 'object') throw new Error('Backup inválido.');
       const data = backupData as Partial<{ config: SystemConfig; spots: BicycleSpot[]; registeredBikes: RegisteredBicycle[]; logs: UsageLog[] }>;
       if (!data.config || !Array.isArray(data.spots) || !Array.isArray(data.registeredBikes) || !Array.isArray(data.logs)) {
         throw new Error('Backup incompleto.');
       }
-      setConfig({ ...DEFAULT_CONFIG, ...data.config });
+      setConfig({ ...emptyWorkspace().config, ...data.config });
       setSpots(data.spots);
       setRegisteredBikes(data.registeredBikes);
       setLogs(data.logs);
@@ -677,34 +693,19 @@ export default function App() {
     updatedConfig: SystemConfig,
     preserveAllocations: boolean
   ) => {
+    if (!canUseMasterMaintenance) return false;
+    let reconciledBikes: RegisteredBicycle[];
+    try {
+      reconciledBikes = preserveAllocations
+        ? reconcileBikeSpots(registeredBikes, newSpots)
+        : registeredBikes.map((bike) => ({ ...bike, spotId: undefined, spotNumber: undefined }));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Não foi possível preservar os vínculos.', 'info');
+      return false;
+    }
     setSpots(newSpots);
     setConfig(updatedConfig);
-
-    if (!preserveAllocations) {
-      // Clean deployment: detach all spots from registered bikes
-      setRegisteredBikes((prev) =>
-        prev.map((b) => ({ ...b, spotId: undefined, spotNumber: undefined }))
-      );
-    } else {
-      // Re-sync registered bikes with new spot instances
-      setRegisteredBikes((prev) =>
-        prev.map((b) => {
-          const matchingSpot = newSpots.find(
-            (s) =>
-              s.currentAllocation?.apartment === b.apartment &&
-              s.currentAllocation?.residentName === b.residentName
-          );
-          if (matchingSpot) {
-            return {
-              ...b,
-              spotId: matchingSpot.id,
-              spotNumber: matchingSpot.spotNumber,
-            };
-          }
-          return b;
-        })
-      );
-    }
+    setRegisteredBikes(reconciledBikes);
 
     // Audit log
     const auditLog: UsageLog = {
@@ -723,6 +724,7 @@ export default function App() {
     showToast(
       `Estrutura de ${newSpots.length} vagas implantada com sucesso para "${updatedConfig.condominiumName}"!`
     );
+    return true;
   };
 
   // Export condo package (.condo.json)
@@ -757,6 +759,7 @@ export default function App() {
 
   // Import condo package (.condo.json)
   const handleImportCondoPackage = (packageData: any) => {
+    if (!canUseMasterMaintenance) return;
     try {
       if (!packageData || typeof packageData !== 'object') {
         throw new Error('Arquivo de pacote inválido.');
@@ -773,19 +776,15 @@ export default function App() {
 
   // Reset to initial demo data
   const handleResetDefaults = () => {
+    if (!canManageCondominium || isCloudMode) {
+      showToast('Os dados de demonstração estão disponíveis no acesso de visitante.', 'info');
+      return;
+    }
     if (
       window.confirm(
         'Deseja redefinir os dados para o padrão de demonstração? Isso substituirá as alterações salvas localmente neste navegador.'
       )
     ) {
-      try {
-        localStorage.removeItem(SPOTS_STORAGE_KEY);
-        localStorage.removeItem(LOGS_STORAGE_KEY);
-        localStorage.removeItem(CONFIG_STORAGE_KEY);
-        localStorage.removeItem(BIKES_STORAGE_KEY);
-      } catch (e) {
-        console.warn('Storage clear failed:', e);
-      }
       setSpots(INITIAL_SPOTS);
       setLogs(INITIAL_LOGS);
       setConfig(DEFAULT_CONFIG);
@@ -795,7 +794,7 @@ export default function App() {
   };
 
   // Save or edit a registered bike directly
-  const handleSaveRegisteredBike = (
+  const handleSaveRegisteredBike = async (
     bikeData: Omit<RegisteredBicycle, 'id' | 'registeredAt'> & {
       id?: string;
       registeredAt?: string;
@@ -836,17 +835,13 @@ export default function App() {
         registeredAt: bikeData.registeredAt || nowIso,
         reevaluationStatus: bikeData.reevaluationStatus || 'em_dia',
       };
-      setRegisteredBikes((prev) => [newBike, ...prev]);
-
       // If user selected a spot during registration, automatically assign it
       if (bikeData.spotId) {
         const spotToLink = spots.find((s) => s.id === bikeData.spotId);
         if (spotToLink && !spotToLink.currentAllocation) {
-          handleConfirmAllocation(
+          const assigned = await handleConfirmAllocation(
             spotToLink,
             {
-              id: `alloc-${Date.now()}`,
-              allocatedAt: nowIso,
               spotId: spotToLink.id,
               apartment: bikeData.apartment,
               block: bikeData.block,
@@ -868,7 +863,13 @@ export default function App() {
             },
             newBike.id
           );
+          if (!assigned) return;
+        } else {
+          showToast('A vaga escolhida não está mais disponível.', 'info');
+          return;
         }
+      } else {
+        setRegisteredBikes((prev) => [newBike, ...prev]);
       }
 
       const newLog: UsageLog = {
@@ -906,20 +907,23 @@ export default function App() {
       return;
     }
     const nowIso = new Date().toISOString();
-    const statusMap = {
-      ativo: data.bikeCondition === 'abandonada' ? 'abandonada' : 'em_dia',
-      mudou_se: 'morador_inativo',
-      em_averiguacao: 'pendente',
-    } as const;
-
-    const newStatus = statusMap[data.residentStatus];
+    const newStatus = data.bikeCondition === 'abandonada'
+      ? 'abandonada'
+      : data.residentStatus === 'mudou_se'
+        ? 'morador_inativo'
+        : data.residentStatus === 'em_averiguacao'
+          ? 'pendente'
+          : 'em_dia';
+    const isResolved = newStatus === 'em_dia';
 
     setRegisteredBikes((prev) =>
       prev.map((b) => {
         if (b.id === bike.id) {
           return {
             ...b,
-            lastReevaluatedAt: nowIso,
+            // Só uma decisão regular concluída reinicia o ciclo bienal. Uma
+            // averiguação aberta permanece visível até resolução posterior.
+            lastReevaluatedAt: isResolved ? nowIso : b.lastReevaluatedAt,
             reevaluationStatus: newStatus,
             reevaluationNotes:
               data.notes ||
@@ -939,14 +943,16 @@ export default function App() {
       type: 'reavaliacao_bienal',
       timestamp: nowIso,
       method: 'painel_admin',
-      notes: `Reavaliação bienal (+2 anos) concluída para ${bike.brandModel}. Morador: ${data.residentStatus}. Condição física: ${data.bikeCondition}. ${
+      notes: `${isResolved ? 'Reavaliação bienal concluída' : 'Vistoria registrada com acompanhamento pendente'} para ${bike.brandModel}. Morador: ${data.residentStatus}. Condição física: ${data.bikeCondition}. ${
         data.abandonmentReasons.length > 0 ? `Sinais: ${data.abandonmentReasons.join(', ')}.` : ''
       } ${data.notes ? `Obs: ${data.notes}` : ''}`,
     };
 
     setLogs((prev) => [newLog, ...prev]);
     setBikeToReevaluate(null);
-    showToast(`Reavaliação bienal da bicicleta "${bike.brandModel}" concluída com sucesso!`);
+    showToast(isResolved
+      ? `Reavaliação bienal da bicicleta "${bike.brandModel}" concluída com sucesso!`
+      : `Vistoria registrada. A pendência de "${bike.residentName}" continuará em acompanhamento.`);
   };
 
   // Report handling via WhatsApp: log and feedback
@@ -956,6 +962,10 @@ export default function App() {
     customMessage: string,
     locationOrDetail?: string
   ) => {
+    if (!canManageCondominium) {
+      showToast('Este acesso permite somente consultar as notificações.', 'info');
+      return;
+    }
     const nowIso = new Date().toISOString();
     const reasonText =
       reason === 'reevaluacao_bienal'
@@ -985,32 +995,30 @@ export default function App() {
   };
 
   // Delete bike registration handling with confirmation
-  const handleConfirmDeleteBike = (bike: RegisteredBicycle) => {
+  const handleConfirmDeleteBike = async (bike: RegisteredBicycle) => {
     if (!canManageCondominium) {
       showToast('Somente síndico ou administradora podem excluir bicicletas.', 'info');
       return;
     }
+    const confirmed = await runCloudCommand(
+      () => archiveBicycle({
+        condominiumId: activeCondominiumId!,
+        bicycleLegacyId: bike.id,
+        note: 'Exclusão confirmada no cadastro do condomínio',
+      }),
+      'Não foi possível confirmar a exclusão desta bicicleta.'
+    );
+    if (!confirmed) return;
     const nowIso = new Date().toISOString();
 
     // If bike was allocated to a spot, unbind/release the spot safely
-    if (bike.spotId || bike.spotNumber) {
-      setSpots((prevSpots) =>
-        prevSpots.map((s) => {
-          if (s.id === bike.spotId || s.spotNumber === bike.spotNumber) {
-            return {
-              ...s,
-              currentAllocation: undefined,
-              lastUsageDate: undefined,
-            };
-          }
-          return s;
-        })
-      );
+    if (spots.some((spot) => isAllocatedToBike(spot, bike))) {
+      setSpots((prevSpots) => releaseBikeSpots(prevSpots, bike));
 
       // If drawer was open for this spot, close it
       if (
         selectedOccupiedSpot &&
-        (selectedOccupiedSpot.id === bike.spotId || selectedOccupiedSpot.spotNumber === bike.spotNumber)
+        isAllocatedToBike(selectedOccupiedSpot, bike)
       ) {
         setSelectedOccupiedSpot(null);
       }
@@ -1067,15 +1075,14 @@ export default function App() {
 
   const handleApproveRequest = (request: SpotRequest, spot: BicycleSpot) => {
     const requestedBike = request.bicycle_id
-      ? registeredBikes.find((bike) => bike.id === request.bicycle_id && !bike.spotId)
-      : registeredBikes.find((bike) =>
-          !bike.spotId &&
-          bike.residentName === request.resident_name &&
-          bike.apartment === request.apartment &&
-          `${bike.brandModel} · ${bike.color} · ${bike.tagNumber}` === request.bicycle_description
-        );
+      ? registeredBikes.find((bike) => bike.id === request.bicycle_id
+          && !bike.spotId && !bike.spotNumber
+          && !spots.some((currentSpot) => isAllocatedToBike(currentSpot, bike)))
+      : undefined;
     if (!requestedBike) {
-      showToast('A bicicleta desta solicitação não foi encontrada entre os cadastros sem vaga.', 'info');
+      showToast(request.bicycle_id
+        ? 'A bicicleta desta solicitação não está disponível para receber uma vaga.'
+        : 'Esta solicitação antiga não identifica uma bicicleta com segurança. Crie um novo pedido vinculado ao cadastro correto.', 'info');
       return;
     }
     setApprovalRequest(request);
@@ -1142,8 +1149,9 @@ export default function App() {
             <div className="flex items-start justify-between gap-4 border-b border-slate-700 p-5">
               <div>
                 <p className="text-[11px] font-mono font-bold uppercase tracking-[.18em] text-amber-300">Escolher vaga livre</p>
-                <h2 className="mt-1 text-base font-black text-white">{bikeAwaitingSpotChoice.brandModel}</h2>
-                <p className="mt-1 text-xs text-slate-400">Morador: {bikeAwaitingSpotChoice.residentName} · Apto {bikeAwaitingSpotChoice.apartment}</p>
+                <h2 className="mt-1 text-base font-black text-white">{bikeAwaitingSpotChoice.residentName}</h2>
+                <p className="mt-1 text-xs font-bold text-slate-300">Apto {bikeAwaitingSpotChoice.apartment}{bikeAwaitingSpotChoice.block ? ` · ${bikeAwaitingSpotChoice.block}` : ''}</p>
+                <p className="mt-1 text-[11px] text-slate-400">{bikeAwaitingSpotChoice.brandModel} · {bikeAwaitingSpotChoice.color}</p>
               </div>
               <button type="button" onClick={() => setBikeAwaitingSpotChoice(null)} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:bg-slate-800" title="Cancelar"><X className="h-4 w-4" /></button>
             </div>
@@ -1200,6 +1208,7 @@ export default function App() {
             bikes={registeredBikes}
             logs={logs}
             config={config}
+            condominiumId={activeCondominiumId}
             onTabChange={setActiveTab}
             onOpenBike={(bike) => {
               setBikeToEdit(bike || null);
@@ -1237,13 +1246,15 @@ export default function App() {
             onBackToTasks={taskReturnContext === 'bikes' ? () => { setTaskReturnContext(null); setActiveTab('tasks'); } : undefined}
           />
         ) : activeTab === 'tasks' ? (
-          <TasksHub bikes={registeredBikes} spots={displaySpots} dueCount={dueReevaluationsCount} condominiumId={activeCondominiumId} onTabChange={setActiveTab} onOpenTask={(focus) => { const target = focus === 'reevaluation' ? 'bikes' : 'requests'; setTaskReturnContext(target); setActiveTab(target); }} onStartReevaluation={(bike) => setBikeToReevaluate(bike)} onAssignSpot={handleAssignSpotToBike} />
+          <TasksHub bikes={registeredBikes} spots={displaySpots} dueCount={dueReevaluationsCount} condominiumId={activeCondominiumId} initialTopic={taskTopic} onTopicChange={setTaskTopic} onTabChange={setActiveTab} onOpenTask={(focus) => { setTaskTopic(focus); const target = focus === 'reevaluation' ? 'bikes' : 'requests'; setTaskReturnContext(target); setActiveTab(target); }} onStartReevaluation={(bike) => setBikeToReevaluate(bike)} onAssignSpot={handleAssignSpotToBike} />
         ) : activeTab === 'requests' ? (
           <SpotRequestsView
             condominiumId={activeCondominiumId}
+            refreshKey={requestsRefreshKey}
             spots={displaySpots}
             bikes={registeredBikes}
             canManage={canManageCondominium}
+            initialFocus={taskReturnContext === 'requests' && taskTopic !== 'reevaluation' ? taskTopic : 'all'}
             onAllocate={handleApproveRequest}
             onBackToTasks={taskReturnContext === 'requests' ? () => { setTaskReturnContext(null); setActiveTab('tasks'); } : undefined}
           />
@@ -1292,6 +1303,7 @@ export default function App() {
 
       {/* Spot Detail Drawer (Panel showing photo and resident info for occupied spots) */}
       <SpotDetailDrawer
+        readOnly={isVisitor}
         spot={selectedOccupiedSpot ? displaySpots.find((spot) => spot.id === selectedOccupiedSpot.id) || selectedOccupiedSpot : null}
         config={config}
         logs={logs}
@@ -1322,12 +1334,14 @@ export default function App() {
       <QrCodeModal
         spot={qrModalSpot ? displaySpots.find((spot) => spot.id === qrModalSpot.id) || qrModalSpot : null}
         condominiumName={config.condominiumName}
+        condominiumId={activeCondominiumId}
         onClose={() => setQrModalSpot(null)}
         onOpenPublicConsult={(s) => setPublicConsultSpot(s)}
       />
 
       {/* Public Consultation Modal for QR Code scan outside the app */}
       <SpotPublicConsultModal
+        readOnly={isVisitor}
         spot={publicConsultSpot ? displaySpots.find((spot) => spot.id === publicConsultSpot.id) || publicConsultSpot : null}
         condominiumName={config.condominiumName}
         onClose={() => setPublicConsultSpot(null)}
@@ -1400,6 +1414,7 @@ export default function App() {
       {/* WhatsApp Report Modal */}
       {bikeToReport && (
         <BikeReportModal
+          readOnly={!canManageCondominium}
           bike={bikeToReport}
           config={config}
           initialReason={reportInitialReason}
@@ -1475,7 +1490,15 @@ export default function App() {
       )}
 
       {/* Connectivity & Offline Status Indicator */}
-      <OfflineIndicator syncState={syncState} pendingChanges={pendingChanges} />
+      <OfflineIndicator
+        syncState={syncState}
+        pendingChanges={pendingChanges}
+        onExportPending={() => { void exportPendingChanges(); }}
+        onUseCloudVersion={() => {
+          if (!window.confirm('Usar a versão da nuvem descartará as alterações pendentes deste aparelho. Baixe uma cópia local antes se precisar consultá-las. Continuar?')) return;
+          void discardPendingAndLoadCloud().catch(() => showToast('Não foi possível carregar a versão da nuvem agora.', 'info'));
+        }}
+      />
     </div>
   );
 }

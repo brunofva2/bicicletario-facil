@@ -4,6 +4,7 @@ import { isCloudConfigured, supabase } from '../lib/supabase';
 import { LoginScreen } from './LoginScreen';
 import { NobrutecConsole } from '../admin/NobrutecConsole';
 import { ResetPasswordScreen } from './ResetPasswordScreen';
+import { PublicSpotPage } from '../components/PublicSpotPage';
 
 export type AppRole = 'nobrutec_admin' | 'syndic' | 'staff' | 'pending';
 
@@ -40,6 +41,7 @@ const AuthContext = createContext<AuthContextValue>({
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
+  const publicSpotSlug = new URLSearchParams(window.location.search).get('spot');
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(isCloudConfigured);
@@ -60,8 +62,19 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
     let active = true;
+    let profileRequest = 0;
+    let currentUserId: string | null = null;
 
     const loadProfile = async (currentSession: Session | null) => {
+      if (!active) return;
+      const request = ++profileRequest;
+      const nextUserId = currentSession?.user.id ?? null;
+      if (currentUserId !== nextUserId) {
+        currentUserId = nextUserId;
+        setProfile(null);
+        setSupportContext(null);
+        setLoading(Boolean(currentSession));
+      }
       setSession(currentSession);
       if (!currentSession) {
         if (active) {
@@ -75,7 +88,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         .select('full_name, role, condominium_id')
         .eq('id', currentSession.user.id)
         .maybeSingle();
-      if (active) {
+      if (active && request === profileRequest) {
         setProfile(data as Profile | null);
         setLoading(false);
       }
@@ -95,11 +108,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       profile,
-      userId: session?.user.id ?? null,
+      userId: isVisitor ? null : session?.user.id ?? null,
       isCloudMode: isCloudConfigured,
-      activeCondominiumId: supportContext?.condominiumId ?? profile?.condominium_id ?? null,
+      activeCondominiumId: isVisitor ? null : supportContext?.condominiumId ?? profile?.condominium_id ?? null,
       effectiveRole: isVisitor ? 'syndic' : supportContext?.role ?? profile?.role ?? null,
-      isSupportMode: Boolean(supportContext),
+      isSupportMode: !isVisitor && Boolean(supportContext),
       isVisitor,
       signOut: async () => {
         if (isVisitor) {
@@ -113,6 +126,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     [profile, session, supportContext, isVisitor]
   );
 
+  if (publicSpotSlug) return <PublicSpotPage slug={publicSpotSlug} />;
   if (!isCloudConfigured) {
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
   }

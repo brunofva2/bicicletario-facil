@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { BicycleSpot, ConcessionType, ResidentAllocation, RegisteredBicycle, BikeCategory } from '../types';
 import { SAMPLE_BIKE_PHOTOS } from '../mockData';
 import { processImageFileToBase64 } from '../utils/imageUpload';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import {
   X,
   Bike,
@@ -29,10 +30,14 @@ interface AllocateModalProps {
     spot: BicycleSpot,
     allocation: Omit<ResidentAllocation, 'id' | 'allocatedAt'>,
     registeredBikeId?: string
-  ) => void;
+  ) => void | boolean | Promise<void | boolean>;
 }
 
-export const AllocateModal: React.FC<AllocateModalProps> = ({
+export const AllocateModal: React.FC<AllocateModalProps> = (props) => props.spot
+  ? <AllocateForm key={`${props.spot.id}:${props.initialSelectedBike?.id || 'new'}`} {...props} spot={props.spot} />
+  : null;
+
+const AllocateForm: React.FC<AllocateModalProps & { spot: BicycleSpot }> = ({
   spot,
   registeredBikes = [],
   initialSelectedBike,
@@ -40,7 +45,7 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
   onClose,
   onConfirm,
 }) => {
-  if (!spot) return null;
+  const [submitting, setSubmitting] = useState(false);
 
   // Mode: 'pick_existing' or 'new'
   const [allocationMode, setAllocationMode] = useState<'pick_existing' | 'new'>(
@@ -80,6 +85,7 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const [isPhotoUploaded, setIsPhotoUploaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useModalAccessibility<HTMLDivElement>(true, onClose);
 
   // Handler for selecting an existing bike from catalog
   const handleSelectExistingBike = (bike: RegisteredBicycle) => {
@@ -130,6 +136,7 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
 
   // Filter available registered bikes for search
   const filteredBikes = registeredBikes.filter((b) => {
+    if (b.spotId || b.spotNumber) return false;
     if (!bikeSearchTerm.trim()) return true;
     const term = bikeSearchTerm.toLowerCase();
     return (
@@ -143,8 +150,9 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
   });
   const selectedRegisteredBike = registeredBikes.find((bike) => bike.id === selectedBikeId);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     if (!apartment.trim() || !residentName.trim()) {
       return;
     }
@@ -171,7 +179,12 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
       bicycleId: selectedBikeId || undefined,
     };
 
-    onConfirm(spot, allocationData, selectedBikeId || undefined);
+    setSubmitting(true);
+    try {
+      await onConfirm(spot, allocationData, selectedBikeId || undefined);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -181,7 +194,12 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         id="allocate-modal-content"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="allocate-modal-title"
+        tabIndex={-1}
         className="glass-panel rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden my-8 text-slate-800 border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -192,7 +210,7 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
               <Bike className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 font-mono tracking-tight">
+              <h2 id="allocate-modal-title" className="text-base font-bold text-slate-900 font-mono tracking-tight">
                 Vincular vaga {spot.spotNumber}
               </h2>
               <p className="text-xs text-slate-500 font-mono">
@@ -202,7 +220,9 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
           </div>
           <button
             id="close-allocate-modal-btn"
+            type="button"
             onClick={onClose}
+            aria-label="Fechar vínculo de vaga"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-200/50 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -731,6 +751,7 @@ export const AllocateModal: React.FC<AllocateModalProps> = ({
             <button
               id="confirm-allocation-submit-btn"
               type="submit"
+              disabled={submitting || isProcessingPhoto}
               className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-mono font-bold transition-colors shadow-sm"
             >
               Confirmar e Alocar Vaga {spot.spotNumber}

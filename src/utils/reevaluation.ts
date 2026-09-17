@@ -52,8 +52,13 @@ export function getBikeReevaluationInfo(
   const monthsSinceLastCheck = Math.floor(daysSinceLastCheck / 30.4375);
   const yearsSinceLastCheck = Number((daysSinceLastCheck / 365.25).toFixed(1));
 
+  // Uma vistoria pode registrar uma pendência sem resolvê-la. Estados abertos
+  // continuam na fila independentemente da data do último contato.
+  const hasOpenIssue = bike?.reevaluationStatus === 'pendente'
+    || bike?.reevaluationStatus === 'morador_inativo'
+    || bike?.reevaluationStatus === 'abandonada';
   // 2 years threshold = 730 days
-  const isDue = daysSinceLastCheck >= 730;
+  const isDue = hasOpenIssue || daysSinceLastCheck >= 730;
 
   const timeDescription = formatTimeSpan(daysSinceLastCheck);
 
@@ -64,6 +69,12 @@ export function getBikeReevaluationInfo(
       label: 'Sinais de Abandono / Irregular',
       description: 'Morador não reside mais ou bike com deterioração física',
       variant: 'danger',
+    };
+  } else if (bike?.reevaluationStatus === 'pendente') {
+    statusBadge = {
+      label: 'Averiguação pendente',
+      description: 'A vistoria foi iniciada, mas ainda precisa de uma decisão final',
+      variant: 'warning',
     };
   } else if (isDue) {
     statusBadge = {

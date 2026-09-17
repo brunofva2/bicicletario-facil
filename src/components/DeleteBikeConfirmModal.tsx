@@ -1,5 +1,6 @@
 import React from 'react';
 import { RegisteredBicycle } from '../types';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import {
   AlertTriangle,
   Trash2,
@@ -23,17 +24,21 @@ export const DeleteBikeConfirmModal: React.FC<DeleteBikeConfirmModalProps> = ({
   onClose,
   onConfirm,
 }) => {
+  const dialogRef = useModalAccessibility<HTMLDivElement>(Boolean(bike), onClose);
   if (!bike) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-fadeIn"
-      role="dialog"
-      aria-modal="true"
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
         className="relative max-w-lg w-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-bike-modal-title"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header Alert Bar */}
@@ -43,7 +48,7 @@ export const DeleteBikeConfirmModal: React.FC<DeleteBikeConfirmModalProps> = ({
               <Trash2 className="w-5 h-5 stroke-[2.2]" />
             </div>
             <div>
-              <h3 className="text-base font-bold font-mono text-rose-950">
+              <h3 id="delete-bike-modal-title" className="text-base font-bold font-mono text-rose-950">
                 Excluir Cadastro de Bicicleta
               </h3>
               <p className="text-xs text-rose-800 font-mono">

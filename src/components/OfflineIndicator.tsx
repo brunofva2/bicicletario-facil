@@ -6,9 +6,11 @@ import { useOnlineStatus } from '../hooks/usePWAInstall';
 interface OfflineIndicatorProps {
   syncState?: OfflineSyncState;
   pendingChanges?: number;
+  onExportPending?: () => void;
+  onUseCloudVersion?: () => void;
 }
 
-export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ syncState = 'synced', pendingChanges = 0 }) => {
+export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ syncState = 'synced', pendingChanges = 0, onExportPending, onUseCloudVersion }) => {
   const isOnline = useOnlineStatus();
   const hasPending = pendingChanges > 0;
 
@@ -30,7 +32,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ syncState = 
       ? 'Confirmando os dados com a nuvem.'
       : isOnline
         ? 'O app tentará enviar novamente automaticamente.'
-        : 'Você pode continuar trabalhando. O envio acontecerá quando a conexão voltar.';
+        : 'Cadastros e configurações permitidos offline ficam neste aparelho. Vínculos e decisões exigem conexão.';
 
   return (
     <div
@@ -43,6 +45,10 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ syncState = 
       <div>
         <p className="font-bold">{title}</p>
         <p className="mt-0.5 leading-relaxed text-slate-300">{description}</p>
+        {conflict && <div className="mt-2 flex flex-wrap gap-2">
+          {onExportPending && <button type="button" onClick={onExportPending} className="rounded-md border border-rose-300/40 px-2 py-1 font-bold text-white hover:bg-white/10">Baixar cópia local</button>}
+          {onUseCloudVersion && <button type="button" onClick={onUseCloudVersion} className="rounded-md bg-white px-2 py-1 font-bold text-rose-900 hover:bg-rose-50">Usar versão da nuvem</button>}
+        </div>}
       </div>
       {syncState === 'synced' && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
     </div>

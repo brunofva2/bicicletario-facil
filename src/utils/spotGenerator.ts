@@ -210,16 +210,10 @@ export function generateSpotsFromModules(
   preserveAllocations: boolean = true
 ): BicycleSpot[] {
   const result: BicycleSpot[] = [];
-
-  // Map existing allocations by spotNumber or id
-  const existingByNumber = new Map<string, BicycleSpot>();
-  const existingById = new Map<string, BicycleSpot>();
-
-  if (preserveAllocations && existingSpots.length > 0) {
-    existingSpots.forEach((s) => {
-      existingByNumber.set(s.spotNumber.toLowerCase().trim(), s);
-      existingById.set(s.id, s);
-    });
+  const matchedIds = new Set<string>();
+  const moduleIds = new Set(modules.map((module) => module.id));
+  if (moduleIds.size !== modules.length || modules.some((module) => !module.id)) {
+    throw new Error('Cada módulo precisa de uma identificação única.');
   }
 
   modules.forEach((mod, modIdx) => {
@@ -229,6 +223,11 @@ export function generateSpotsFromModules(
     const hookType = mod.hookType || 'Gancho Vertical c/ Apoio de Pneu';
     const maxWeightKg = Number(mod.maxWeightKg) || 30;
     const sectorName = mod.name.trim() || `Módulo ${modIdx + 1}`;
+    if (!Number.isInteger(startNum) || !Number.isInteger(count)) {
+      throw new Error('A numeração e a quantidade de vagas precisam ser números inteiros.');
+    }
+    const moduleSpots = existingSpots.filter((spot) => spot.floorPlanModuleId === mod.id);
+    const legacySpots = existingSpots.filter((spot) => !spot.floorPlanModuleId && spot.sector === sectorName);
 
     for (let i = 0; i < count; i++) {
       const currentNum = startNum + i;
@@ -242,12 +241,15 @@ export function generateSpotsFromModules(
       }
 
       const spotNumber = `${prefix}${numStr}`;
-      const id = `spot-m${modIdx + 1}-${currentNum}`;
-
-      // Check if this spot existed previously with allocation
-      const existing =
-        existingByNumber.get(spotNumber.toLowerCase().trim()) ||
-        existingById.get(id);
+      // Match only inside this physical module. Position keeps identity across renumbering.
+      const candidates = moduleSpots.filter((spot) => spot.wallPosition === i + 1);
+      const matches = candidates.length ? candidates : legacySpots.filter((spot) => spot.spotNumber === spotNumber);
+      if (matches.length > 1 || (matches[0] && matchedIds.has(matches[0].id))) {
+        throw new Error(`Não foi possível identificar com segurança a vaga ${spotNumber} de ${sectorName}.`);
+      }
+      const existing = matches[0];
+      const id = existing?.id || `spot-${encodeURIComponent(mod.id)}-${currentNum}`;
+      if (existing) matchedIds.add(existing.id);
 
       const allocation =
         preserveAllocations && existing?.currentAllocation
@@ -271,13 +273,20 @@ export function generateSpotsFromModules(
         wallPosition: i + 1,
         maxWeightKg,
         hookType,
-        qrCodeValue: `COND-BIKE-${spotNumber.replace(/[^a-zA-Z0-9]/g, '')}`,
+        qrCodeValue: existing?.qrCodeValue || `COND-BIKE-${id}`,
+        floorPlanModuleId: existing?.floorPlanModuleId || mod.id,
         currentAllocation: allocation,
         lastUsageDate: lastUsage,
       });
     }
   });
 
+  if (new Set(result.map((spot) => spot.id)).size !== result.length) {
+    throw new Error('A estrutura geraria duas vagas com a mesma identificação. Revise os módulos.');
+  }
+  if (preserveAllocations && existingSpots.some((spot) => spot.currentAllocation && !matchedIds.has(spot.id))) {
+    throw new Error('A alteração removeria vagas ocupadas. Libere ou transfira essas bicicletas antes de alterar a estrutura.');
+  }
   return result;
 }
 

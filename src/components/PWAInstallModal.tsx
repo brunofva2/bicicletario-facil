@@ -58,7 +58,7 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
                 </span>
               </h2>
               <p className="text-[11px] text-slate-300 font-mono">
-                Funciona em tela cheia, sem barra de navegador e 100% offline
+                Abre em tela cheia e mantém cadastros compatíveis durante instabilidades de conexão
               </p>
             </div>
           </div>
